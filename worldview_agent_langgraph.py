@@ -28,16 +28,21 @@ class AgentState(TypedDict):
 # ==========================================
 # Local DB & LLM Clients (Google AI Studio)
 # ==========================================
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") or "AIzaSyDrS1FZCh0oWB4t4DCRb0f6dowtGKgEwm0"
+from config_utils import CONFIG
+GOOGLE_API_KEY = CONFIG.get("GOOGLE_API_KEY")
 
 # LLM for general generation
-llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash-lite", google_api_key=GOOGLE_API_KEY)
+llm = ChatGoogleGenerativeAI(model=CONFIG.get("DEFAULT_MODEL"), google_api_key=GOOGLE_API_KEY)
 # LLM for structured audit (JSON Mode)
 llm_json = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash-lite", 
+    model=CONFIG.get("DEFAULT_MODEL"), 
     google_api_key=GOOGLE_API_KEY,
     model_kwargs={"response_mime_type": "application/json"}
 )
+
+embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001", google_api_key=GOOGLE_API_KEY, task_type="retrieval_document")
+chroma_client = chromadb.PersistentClient(path="./chroma_db")
+vector_store = Chroma(client=chroma_client, collection_name="pga_lore", embedding_function=embeddings)
 
 embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001", google_api_key=GOOGLE_API_KEY, task_type="retrieval_document")
 

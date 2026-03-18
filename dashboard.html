@@ -233,9 +233,14 @@
         }
 
         function renderLogs() {
-            const data = currentFilter === 'all' 
-                ? allLoreData 
-                : allLoreData.filter(item => item.category === currentFilter);
+            const data = allLoreData.filter(item => {
+                if (currentFilter === 'all') return true;
+                if (currentFilter === 'Worldview') {
+                    // "设定" 过滤器应该包含所有非大纲非正文的设定 (Mechanisms, Factions, etc.)
+                    return item.category !== 'Outline' && item.category !== 'Prose';
+                }
+                return item.category === currentFilter;
+            });
 
             logList.innerHTML = data.map(item => {
                 let color = 'cyan';
@@ -261,6 +266,49 @@
             welcomeView.classList.add('hidden');
             detailView.classList.remove('hidden');
         }
+
+        async function executeSearch() {
+            const query = document.getElementById('search-input').value;
+            console.log("Search clicked, query:", query);
+            if (!query) return;
+            
+            const btn = document.getElementById('search-btn');
+            const originalText = btn.innerText;
+            btn.innerText = "检索中...";
+            btn.disabled = true;
+
+            try {
+                const res = await fetch('/api/search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query })
+                });
+                console.log("Search res status:", res.status);
+                const data = await res.json();
+                console.log("Search records count:", data.length);
+                
+                if (data.length === 0) {
+                    logList.innerHTML = `<div class="text-xs text-slate-500 italic p-4">未找到相关设定...</div>`;
+                } else {
+                    // Reset filter to 'all' to show search results
+                    setFilter('all');
+                    allLoreData = data; 
+                    renderLogs();
+                }
+            } catch (err) {
+                console.error("Search error:", err);
+                alert("搜索失败，请检查后端台日志: " + err);
+            } finally {
+                btn.innerText = originalText;
+                btn.disabled = false;
+            }
+        }
+
+        // Add event listener for Search
+        const sBtn = document.getElementById('search-btn');
+        if (sBtn) sBtn.onclick = executeSearch;
+        const sInput = document.getElementById('search-input');
+        if (sInput) sInput.onkeydown = (e) => { if (e.key === 'Enter') executeSearch(); };
 
         function showWelcome() {
             welcomeView.classList.remove('hidden');

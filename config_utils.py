@@ -1,0 +1,38 @@
+import os
+import json
+
+def load_config():
+    """Centralized configuration loader for the Novel Agent system."""
+    config = {}
+    config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
+    print(f"[CONFIG DEBUG] Checking config at: {config_path}")
+    
+    if os.path.exists(config_path):
+        try:
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = json.load(f)
+            print(f"[CONFIG DEBUG] Loaded keys from JSON: {list(config.keys())}")
+        except Exception as e:
+            print(f"[CONFIG ERROR] Failed to load config.json: {e}")
+    else:
+        print(f"[CONFIG DEBUG] config.json NOT FOUND at {config_path}")
+    
+    # Priority: config.json > Environment Variables
+    google_key = config.get("GOOGLE_API_KEY") 
+    if not google_key:
+        google_key = os.getenv("GOOGLE_API_KEY")
+        if google_key:
+            print("[CONFIG DEBUG] Using GOOGLE_API_KEY from environment.")
+    else:
+        print("[CONFIG DEBUG] Using GOOGLE_API_KEY from config.json.")
+    
+    if not google_key:
+        print("[CONFIG WARNING] GOOGLE_API_KEY is empty or None!")
+
+    return {
+        "GOOGLE_API_KEY": google_key,
+        "DEFAULT_MODEL": "gemini-2.5-flash-lite"
+    }
+
+print("[CONFIG] Initializing global CONFIG object...")
+CONFIG = load_config()

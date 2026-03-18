@@ -24,8 +24,9 @@ def get_outline_by_id(outline_id):
                 return data['outline']
     return None
 
-# 配置信息
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") or "AIzaSyDrS1FZCh0oWB4t4DCRb0f6dowtGKgEwm0"
+# 配置信息加载
+from config_utils import CONFIG
+GOOGLE_API_KEY = CONFIG.get("GOOGLE_API_KEY")
 
 @app.route('/')
 def index():
@@ -35,25 +36,27 @@ def index():
 def get_lore():
     all_docs = []
     
-    # 1. Worldview (JSON Array)
+    # 1. Worldview (JSONL)
     if os.path.exists('worldview_db.json'):
         with open('worldview_db.json', 'r', encoding='utf-8') as f:
-            try:
-                data = json.load(f)
-                for item in data:
+            for line in f:
+                if not line.strip(): continue
+                try:
+                    item = json.loads(line)
                     all_docs.append({
                         "name": item.get("name") or item.get("query"),
                         "content": item.get("content"),
                         "category": item.get("category", "Worldview"),
                         "timestamp": item.get("timestamp", "N/A")
                     })
-            except json.JSONDecodeError: pass
+                except: pass
 
     # 2. Outlines (JSONL)
     if os.path.exists('outlines_db.json'):
         with open('outlines_db.json', 'r', encoding='utf-8') as f:
             for line in f:
-                if line.strip():
+                if not line.strip(): continue
+                try:
                     item = json.loads(line)
                     all_docs.append({
                         "name": f"大纲: {item.get('query', '未命名')[:20]}...",
@@ -61,12 +64,14 @@ def get_lore():
                         "category": "Outline",
                         "timestamp": item.get("timestamp", "刚刚")
                     })
+                except: pass
 
     # 3. Prose (JSONL)
     if os.path.exists('prose_db.json'):
         with open('prose_db.json', 'r', encoding='utf-8') as f:
             for line in f:
-                if line.strip():
+                if not line.strip(): continue
+                try:
                     item = json.loads(line)
                     all_docs.append({
                         "name": f"正文: {item.get('scene_title')}",
@@ -74,6 +79,7 @@ def get_lore():
                         "category": "Prose",
                         "timestamp": item.get("timestamp", "刚刚")
                     })
+                except: pass
 
     return jsonify(all_docs[::-1])
 
@@ -127,7 +133,10 @@ def agent_feedback():
         thread_id = data.get('thread_id', 'default_user')
         agent_type = data.get('agent_type', 'worldview')
         
-        agent_app = AGENTS.get(agent_type, worldview_app)
+        agent_app = AGENTS.get(agent_type)
+        if not agent_app:
+             return jsonify({"error": f"Agent '{agent_type}' 未就绪"}), 500
+             
         config = {"configurable": {"thread_id": thread_id}}
         
         # 显式传递反馈给状态机
@@ -139,24 +148,37 @@ def agent_feedback():
 
 @app.route('/api/search', methods=['POST'])
 def search_lore():
-    query = request.json.get('query', '')
-    # 延迟加载 Chroma 以避免不必要的依赖冲突
-    from langchain_chroma import Chroma
-    from langchain_google_genai import GoogleGenerativeAIEmbeddings
-    import chromadb
-    
-    embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001", google_api_key=GOOGLE_API_KEY, task_type="retrieval_document")
-    chroma_client = chromadb.PersistentClient(path="./chroma_db")
-    vector_store = Chroma(client=chroma_client, collection_name="pga_worldview_v1", embedding_function=embeddings)
-    
-    docs = vector_store.similarity_search(query, k=5)
-    results = []
-    for d in docs:
-        results.append({
-            "content": d.page_content,
-            "metadata": d.metadata
-        })
-    return jsonify(results)
+    try:
+        data = request.json
+        query = data.get('query', '')
+        if not query:
+            return jsonify([])
+
+        # 延迟加载 Chroma 以避免不必要的依赖冲突
+        from langchain_chroma import Chroma
+        from langchain_google_genai import GoogleGenerativeAIEmbeddings
+        import chromadb
+        
+        embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001", google_api_key=GOOGLE_API_KEY, task_type="retrieval_document")
+        chroma_client = chromadb.PersistentClient(path="./chroma_db")
+        
+        # 核心：必须使用与 ingest_lore.py 一致的 collection_name
+        vector_store = Chroma(client=chroma_client, collection_name="pga_lore", embedding_function=embeddings)
+        
+        docs = vector_store.similarity_search(query, k=5)
+        formatted = []
+        for d in docs:
+            formatted.append({
+                "name": d.metadata.get('name', '搜索结果'),
+                "content": d.page_content,
+                "category": d.metadata.get('category', 'Search'),
+                "timestamp": "检索中"
+            })
+        print(f"[SEARCH SUCCESS] Query: '{query}', Results: {len(formatted)}")
+        return jsonify(formatted)
+    except Exception as e:
+        print(f"[SEARCH ERROR] {e}")
+        return jsonify({"error": str(e)}), 500
 
 @app.route('/api/snapshots/<outline_id>', methods=['GET'])
 def get_snapshots(outline_id):

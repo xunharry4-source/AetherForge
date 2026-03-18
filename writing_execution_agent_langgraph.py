@@ -39,11 +39,12 @@ class WritingState(TypedDict):
 # ==========================================
 # Clients Init
 # ==========================================
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") or "AIzaSyDrS1FZCh0oWB4t4DCRb0f6dowtGKgEwm0"
-llm = ChatGoogleGenerativeAI(model="gemini-2.5-flash-lite", google_api_key=GOOGLE_API_KEY)
+from config_utils import CONFIG
+GOOGLE_API_KEY = CONFIG.get("GOOGLE_API_KEY")
+llm = ChatGoogleGenerativeAI(model=CONFIG.get("DEFAULT_MODEL"), google_api_key=GOOGLE_API_KEY)
 # JSON mode client
 llm_json = ChatGoogleGenerativeAI(
-    model="gemini-2.5-flash-lite", 
+    model=CONFIG.get("DEFAULT_MODEL"), 
     google_api_key=GOOGLE_API_KEY,
     model_kwargs={"response_mime_type": "application/json"}
 )

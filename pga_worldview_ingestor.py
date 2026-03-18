@@ -9,7 +9,7 @@ import chromadb
 import pymongo
 
 # Configuration
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") or "AIzaSyDrS1FZCh0oWB4t4DCRb0f6dowtGKgEwm0"
+GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") 
 embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001", google_api_key=GOOGLE_API_KEY, task_type="retrieval_document")
 
 # 1. MongoDB 设置 (包含回退机制)
