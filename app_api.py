@@ -257,6 +257,8 @@ def agent_query():
             "status_message": "正在生成小说大纲提案..."
         }
     
+    print(f"\n[API] Invoking Agent '{agent_type}' for thread '{thread_id}'")
+    print(f"[API] Input State: {json.dumps(input_state, ensure_ascii=False)[:200]}...")
     try:
         output = agent_app.invoke(input_state, config=config)
         # 如果 graph 在 human_node 被 interrupt 暂停，output 里不包含最终结果
@@ -288,6 +290,8 @@ def agent_feedback():
             return jsonify({"error": f"Agent '{agent_type}' 未就绪"}), 500
             
     config = {"configurable": {"thread_id": thread_id}}
+    print(f"\n[API] Resuming Agent '{agent_type}' for thread '{thread_id}'")
+    print(f"[API] Feedback Received: '{feedback}'")
     try:
         from langgraph.types import Command
         # 使用 Command(resume=feedback) 恢复被 interrupt 暂停的 graph

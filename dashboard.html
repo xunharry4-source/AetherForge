@@ -501,6 +501,7 @@
             const outputDiv = document.getElementById('agent-output');
             const interactionDiv = document.getElementById('agent-interaction');
             const statusSpan = document.getElementById('agent-status');
+            let contentHtml = "";
             
             if (data.status_message) {
                 statusSpan.innerText = data.status_message;
@@ -525,7 +526,6 @@
             }
             
             if (data.proposal || data.draft_content) {
-                let contentHtml = "";
                 const rawContent = data.proposal || data.draft_content;
                 
                 try {
@@ -567,23 +567,22 @@
                         }
                         contentHtml += `</div>`;
                     } else {
-                        contentHtml = `<div class="text-[13px] text-slate-200 whitespace-pre-wrap">${rawContent}</div>`;
                     }
                 } catch (e) {
                     contentHtml = `<div class="text-[13px] text-slate-200 whitespace-pre-wrap">${rawContent}</div>`;
                 }
 
+                if (currentAgentType === 'writing') {
                     contentHtml = `
                         <div class="space-y-4">
                              <div class="flex justify-between items-center bg-purple-500/10 p-2 rounded-lg border border-purple-500/20">
                                 <span class="text-xs text-purple-400 font-bold tracking-widest uppercase">场次正文初稿</span>
-                                <span class="text-[10px] text-slate-500 font-mono">SCENE INDEX: ${data.active_scene_index}</span>
+                                <span class="text-[10px] text-slate-500 font-mono">SCENE INDEX: ${data.active_scene_index || 0}</span>
                              </div>
-                             <div class="text-[14px] text-slate-200 leading-relaxed font-serif p-4 bg-black/20 rounded-xl border border-slate-800 whitespace-pre-wrap">${data.draft_content}</div>
+                             <div class="text-[14px] text-slate-200 leading-relaxed font-serif p-4 bg-black/20 rounded-xl border border-slate-800 whitespace-pre-wrap">${data.draft_content || ''}</div>
                         </div>
                     `;
                     
-                    // Add Snapshots if available
                     if (data.char_status_summary || data.scene_status_summary) {
                         html += `
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
@@ -613,7 +612,6 @@
                                 <div class="aspect-video bg-slate-800 flex items-center justify-center relative group">
                                     <div class="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent"></div>
                                     <div class="text-slate-500 text-[10px] italic">视觉快照模拟：[${data.visual_snapshot_path}]</div>
-                                    <!-- In real env, use <img src="${data.visual_snapshot_path}"> -->
                                     <div class="absolute bottom-4 left-4 right-4">
                                         <div class="text-[10px] text-white/80 line-clamp-2">${data.status_message}</div>
                                     </div>
@@ -621,15 +619,15 @@
                             </div>
                         `;
                     }
-                } else {
-                    contentHtml = `<div class="text-[13px] text-slate-200 whitespace-pre-wrap">${data.proposal || data.query}</div>`;
                 }
+            } else {
+                contentHtml = `<div class="text-[13px] text-slate-200 whitespace-pre-wrap">${data.proposal || data.query || ''}</div>`;
+            }
 
                 html += `<div class="bg-slate-900/50 p-4 rounded-2xl border border-cyan-500/20">
                     <div class="text-[10px] text-slate-500 uppercase tracking-widest mb-2">PGA 生成产物</div>
                     ${contentHtml}
                 </div>`;
-            }
 
             outputDiv.innerHTML = html;
             interactionDiv.classList.remove('hidden');

@@ -368,8 +368,7 @@ def get_unified_context(query, retry_on_429=True):
                 context_blocks.append(f"【背景资料: {res.metadata.get('name', '未命名')}】\n{res.page_content}")
     except Exception as e:
         if "429" in str(e) and retry_on_429:
-            from api_key_manager import APIKeyManager
-            if APIKeyManager.rotate_key():
+            if rotate_api_key():
                 print(f"[lore_utils] API Key Rotated. Retrying context retrieval...")
                 return get_unified_context(query, retry_on_429=False)
         print(f"[lore_utils] ChromaDB Search Error: {e}")
