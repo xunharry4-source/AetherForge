@@ -18,21 +18,29 @@ def load_config():
         print(f"[CONFIG DEBUG] config.json NOT FOUND at {config_path}")
     
     # Priority: config.json > Environment Variables
-    google_key = config.get("GOOGLE_API_KEY") 
+    google_keys = config.get("GOOGLE_API_KEYS", [])
+    google_key = config.get("GOOGLE_API_KEY")
+    
     if not google_key:
         google_key = os.getenv("GOOGLE_API_KEY")
-        if google_key:
-            print("[CONFIG DEBUG] Using GOOGLE_API_KEY from environment.")
-    else:
-        print("[CONFIG DEBUG] Using GOOGLE_API_KEY from config.json.")
+
+    if not google_key and google_keys:
+        google_key = google_keys[0]
+        print(f"[CONFIG DEBUG] No GOOGLE_API_KEY found in config or env. Using first key from GOOGLE_API_KEYS.")
     
+    if not google_keys and google_key:
+        google_keys = [google_key]
+
     if not google_key:
         print("[CONFIG WARNING] GOOGLE_API_KEY is empty or None!")
 
     return {
         "GOOGLE_API_KEY": google_key,
+        "GOOGLE_API_KEYS": google_keys,
         "DEFAULT_MODEL": "gemini-2.5-flash-lite"
     }
 
-print("[CONFIG] Initializing global CONFIG object...")
-CONFIG = load_config()
+# No global CONFIG object here to force fresh loading if needed, 
+# but we'll provide a getter for convenience.
+def get_config():
+    return load_config()

@@ -43,7 +43,9 @@
             <nav class="flex gap-4">
                 <button onclick="switchTab('archive')" class="tab-btn active px-4 py-2 rounded-xl text-sm font-medium transition-all">文献档案库</button>
                 <button onclick="switchTab('agent')" class="tab-btn px-4 py-2 rounded-xl text-sm font-medium transition-all">Agent 工作区</button>
+                <button onclick="switchTab('template')" class="tab-btn px-4 py-2 rounded-xl text-sm font-medium transition-all">模板管理</button>
             </nav>
+
         </header>
 
         <!-- Archive View (Default) -->
@@ -125,63 +127,127 @@
             </div>
         </div>
 
-        <!-- Agent Workspace View -->
+        <!-- Agent View -->
         <div id="agent-view" class="tab-view hidden space-y-8">
-                <div class="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 mb-8">
-                    <div class="flex items-center gap-3">
-                        <div class="p-2 rounded-lg bg-cyan-500 text-white shadow-lg shadow-cyan-500/50"><i data-lucide="zap"></i></div>
-                        <h2 class="text-2xl font-bold">闭环迭代创作区</h2>
-                    </div>
-                    <!-- Agent Selector -->
-                    <div class="flex items-center gap-2 bg-slate-900/50 p-1.5 rounded-2xl border border-slate-700/50">
-                        <button onclick="setAgentType('worldview')" id="btn-agent-worldview" class="agent-tab-btn active px-4 py-2 rounded-xl text-xs font-semibold transition-all bg-cyan-600 text-white">
-                            <i data-lucide="globe" class="w-3 h-3 inline-block mr-1"></i> 世界观增强
-                        </button>
-                        <button onclick="setAgentType('outline')" id="btn-agent-outline" class="agent-tab-btn px-4 py-2 rounded-xl text-xs font-semibold transition-all text-slate-400 hover:text-slate-200">
-                            <i data-lucide="list" class="w-3 h-3 inline-block mr-1"></i> 大纲生成
-                        </button>
-                        <button onclick="setAgentType('writing')" id="btn-agent-writing" class="agent-tab-btn px-4 py-2 rounded-xl text-xs font-semibold transition-all text-slate-400 hover:text-slate-200">
-                            <i data-lucide="pen-tool" class="w-3 h-3 inline-block mr-1"></i> 写作执行
-                        </button>
-                    </div>
+            <div class="glass p-8 rounded-[40px] space-y-6">
+                <!-- Agent Type Tabs -->
+                <div class="flex gap-2">
+                    <button id="btn-agent-worldview" onclick="setAgentType('worldview')" class="agent-tab-btn active bg-cyan-600 text-white px-4 py-2 rounded-xl text-sm font-medium transition-all">世界观 Agent</button>
+                    <button id="btn-agent-outline" onclick="setAgentType('outline')" class="agent-tab-btn text-slate-400 hover:text-slate-200 px-4 py-2 rounded-xl text-sm font-medium transition-all">大纲 Agent</button>
+                    <button id="btn-agent-writing" onclick="setAgentType('writing')" class="agent-tab-btn text-slate-400 hover:text-slate-200 px-4 py-2 rounded-xl text-sm font-medium transition-all">执笔 Agent</button>
                 </div>
 
-                <div class="grid grid-cols-1 lg:grid-cols-2 gap-8 h-[600px]">
-                    <!-- Left: Input & Interaction -->
-                    <div class="flex flex-col gap-4">
-                        <div class="flex-1 flex flex-col gap-4">
-                            <label id="agent-input-label" class="text-sm text-slate-400 flex items-center gap-2"><i data-lucide="message-square" class="w-4 h-4"></i> 输入您的设定草案或指令</label>
-                            <textarea id="agent-input" placeholder="例如：增加一个位于室女座超星系团边缘的智械母舰设定..." 
-                                class="flex-1 bg-slate-900/50 border border-slate-700/50 rounded-3xl p-6 text-sm focus:outline-none focus:border-cyan-500 transition-all resize-none"></textarea>
-                        </div>
-                        <div class="flex gap-4">
-                            <button id="agent-run-btn" class="flex-1 bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-4 rounded-2xl transition-all shadow-lg shadow-cyan-600/20">启动 Agent 生成</button>
-                        </div>
-                        
-                        <div id="agent-interaction" class="hidden space-y-4 pt-4 border-t border-slate-700/50">
-                            <input type="text" id="agent-feedback" placeholder="输入您的修改意见..." 
-                                class="w-full bg-slate-800/50 border border-slate-700/50 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-blue-500">
-                            <div class="flex gap-4">
-                                <button id="agent-feedback-btn" class="flex-1 bg-blue-600 hover:bg-blue-500 text-white font-semibold py-3 rounded-2xl transition-all">提交反馈</button>
-                                <button id="agent-approve-btn" class="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 rounded-2xl transition-all">批准入库</button>
-                            </div>
-                        </div>
-                    </div>
+                <!-- Input Area -->
+                <div class="space-y-2">
+                    <label id="agent-input-label" class="text-xs text-slate-400 flex items-center gap-1">
+                        <i data-lucide="globe" class="w-4 h-4"></i> 输入您的设定草案或指令
+                    </label>
+                    <textarea id="agent-input" rows="4" placeholder="例如：增加一个位于室女座超星系团边缘的智械母舰设定..."
+                        class="w-full bg-slate-900/50 border border-slate-700/50 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all resize-none"></textarea>
+                </div>
 
-                    <!-- Right: Logic Visualization -->
-                    <div class="flex flex-col gap-4 overflow-hidden">
-                        <div class="flex items-center justify-between text-xs text-slate-500 px-2">
-                            <span>实时逻辑流 (Thinking & Audit)</span>
-                            <span id="agent-status" class="flex items-center gap-1 text-cyan-400">就绪</span>
-                        </div>
-                        <div id="agent-output" class="flex-1 bg-black/40 border border-slate-800 rounded-3xl p-6 overflow-y-auto space-y-6 font-mono text-xs leading-relaxed">
-                            <div class="text-slate-500 italic">等待指令启动...</div>
-                        </div>
+                <!-- Action Bar -->
+                <div class="flex gap-4 items-center">
+                    <button id="agent-run-btn" class="flex-1 bg-cyan-600 hover:opacity-90 text-white font-bold py-4 rounded-2xl transition-all shadow-lg">启动 PGA</button>
+                    <span id="agent-status" class="text-xs text-slate-500">就绪</span>
+                </div>
+
+                <!-- Output Area -->
+                <div id="agent-output" class="min-h-[200px] bg-black/20 rounded-3xl p-6 border border-slate-800">
+                    <div class="text-slate-500 text-sm italic">Agent 输出将在此显示...</div>
+                </div>
+
+                <!-- Interaction: Feedback & Approve -->
+                <div id="agent-interaction" class="hidden space-y-4 bg-slate-900/50 p-6 rounded-3xl border border-slate-800">
+                    <div class="text-xs text-slate-500 uppercase tracking-widest">迭代反馈区</div>
+                    <textarea id="agent-feedback" rows="2" placeholder="输入修改意见..."
+                        class="w-full bg-black/30 border border-slate-700/50 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500 transition-all resize-none"></textarea>
+                    <div class="flex gap-3">
+                        <button id="agent-feedback-btn" class="flex-1 bg-amber-600 hover:bg-amber-500 text-white font-semibold py-3 rounded-xl transition-all">提交修改意见</button>
+                        <button id="agent-approve-btn" class="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 rounded-xl transition-all">批准并持久化</button>
                     </div>
                 </div>
             </div>
         </div>
+
+            <div id="template-view" class="tab-view hidden space-y-8">
+                <div class="flex items-center gap-3 mb-8">
+                    <div class="p-2 rounded-lg bg-indigo-500 text-white shadow-lg shadow-indigo-500/50"><i data-lucide="layout"></i></div>
+                    <h2 class="text-2xl font-bold">世界观分类模板管理</h2>
+                </div>
+
+                <div class="grid grid-cols-1 lg:grid-cols-3 gap-8 h-[600px]">
+                    <!-- Left: Category List -->
+                    <div class="glass rounded-3xl p-6 space-y-4 overflow-hidden flex flex-col">
+                        <div class="flex items-center justify-between">
+                            <h3 class="text-sm font-semibold text-slate-400 uppercase tracking-widest flex items-center gap-2">
+                                <i data-lucide="list" class="w-4 h-4"></i> 分类列表
+                            </h3>
+                            <button onclick="showNewCategoryModal()" class="text-xs bg-indigo-600 hover:bg-indigo-500 text-white px-3 py-1.5 rounded-lg font-semibold transition-all">
+                                + 新建
+                            </button>
+                        </div>
+                        <div id="template-categories" class="flex-1 space-y-2 overflow-y-auto pr-2 scrollbar-hide">
+                            <!-- Categories inject here -->
+                        </div>
+                    </div>
+
+                    <!-- Right: Template Editor -->
+                    <div class="lg:col-span-2 glass rounded-[40px] p-8 flex flex-col gap-6 relative overflow-hidden">
+                        <div class="flex items-center justify-between">
+                            <h3 id="current-template-category" class="text-xl font-bold text-white">请选择一个分类</h3>
+                            <div class="flex gap-2">
+                                <button id="delete-template-btn" class="hidden bg-red-600/80 hover:bg-red-500 text-white px-4 py-2 rounded-xl font-semibold transition-all text-sm">
+                                    删除分类
+                                </button>
+                                <button id="save-template-btn" class="hidden bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded-xl font-semibold transition-all shadow-lg shadow-indigo-600/20">
+                                    保存模板
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="flex-1 flex flex-col gap-4">
+                            <div class="text-xs text-slate-500 flex justify-between">
+                                <span>JSON 架构与参考示例</span>
+                                <span id="template-status" class="text-indigo-400">只读模式</span>
+                            </div>
+                            <textarea id="template-editor" readonly
+                                class="flex-1 bg-black/40 border border-slate-800 rounded-3xl p-6 font-mono text-xs leading-relaxed focus:outline-none focus:border-indigo-500 transition-all resize-none scrollbar-hide"></textarea>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- New Category Modal -->
+            <div id="new-category-modal" class="hidden fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div class="glass rounded-3xl p-8 w-full max-w-lg space-y-6">
+                    <h3 class="text-xl font-bold text-white flex items-center gap-2">
+                        <i data-lucide="plus-circle" class="w-5 h-5 text-indigo-400"></i> 新建分类模板
+                    </h3>
+                    <div class="space-y-4">
+                        <div>
+                            <label class="text-xs text-slate-400 mb-1 block">分类标识 (English, 小写)</label>
+                            <input id="new-cat-id" type="text" placeholder="例如: weapon" class="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 transition-all">
+                        </div>
+                        <div>
+                            <label class="text-xs text-slate-400 mb-1 block">中文名称</label>
+                            <input id="new-cat-name" type="text" placeholder="例如: 武器" class="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-500 transition-all">
+                        </div>
+                        <div>
+                            <label class="text-xs text-slate-400 mb-1 block">初始模板字段 (JSON, 可选)</label>
+                            <textarea id="new-cat-template" rows="4" placeholder='{"name": "[名称]", "type": "[类型]"}' class="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:border-indigo-500 transition-all resize-none"></textarea>
+                        </div>
+                    </div>
+                    <div class="flex gap-3 justify-end">
+                        <button onclick="hideNewCategoryModal()" class="px-6 py-2 rounded-xl text-slate-400 hover:text-white transition-all">取消</button>
+                        <button onclick="createNewCategory()" class="bg-indigo-600 hover:bg-indigo-500 text-white px-6 py-2 rounded-xl font-semibold transition-all">创建</button>
+                    </div>
+                </div>
+            </div>
+
+        </div>
     </div>
+
 
     <script>
         // Tab Management
@@ -236,19 +302,19 @@
             const data = allLoreData.filter(item => {
                 if (currentFilter === 'all') return true;
                 if (currentFilter === 'Worldview') {
-                    // "设定" 过滤器应该包含所有非大纲非正文的设定 (Mechanisms, Factions, etc.)
                     return item.category !== 'Outline' && item.category !== 'Prose';
                 }
                 return item.category === currentFilter;
             });
 
-            logList.innerHTML = data.map(item => {
+            logList.innerHTML = data.map((item, index) => {
                 let color = 'cyan';
                 if (item.category === 'Outline') color = 'emerald';
                 if (item.category === 'Prose' || item.category === 'Snapshot') color = 'purple';
                 
+                // 使用索引而不是直接传字符串，防止特殊字符导致 JS 崩溃
                 return `
-                    <div onclick="showDetail('${item.name || item.query}', \`${item.content.replace(/`/g, '\\`')}\`)" 
+                    <div onclick="showDetailByIndex(${allLoreData.indexOf(item)})" 
                         class="p-4 rounded-2xl bg-slate-800/20 border border-slate-800 hover:border-${color}-500/40 hover:bg-slate-800/50 transition-all cursor-pointer group text-left">
                         <div class="flex justify-between items-center mb-1">
                             <span class="text-[9px] text-${color}-400 font-bold uppercase tracking-wider bg-${color}-500/10 px-1.5 py-0.5 rounded">${item.category || 'General'}</span>
@@ -260,12 +326,19 @@
             }).join('');
         }
 
+        function showDetailByIndex(index) {
+            const item = allLoreData[index];
+            if (!item) return;
+            showDetail(item.name || item.query, item.content);
+        }
+
         function showDetail(title, content) {
             detailTitle.innerText = title;
             detailContent.innerText = content;
             welcomeView.classList.add('hidden');
             detailView.classList.remove('hidden');
         }
+
 
         async function executeSearch() {
             const query = document.getElementById('search-input').value;
@@ -453,23 +526,25 @@
             
             if (data.proposal || data.draft_content) {
                 let contentHtml = "";
+                const rawContent = data.proposal || data.draft_content;
                 
-                if (data.proposal && currentAgentType === 'outline') {
-                    try {
-                        const outline = typeof data.proposal === 'string' ? JSON.parse(data.proposal) : data.proposal;
+                try {
+                    const parsed = typeof rawContent === 'string' ? JSON.parse(rawContent) : rawContent;
+                    
+                    if (currentAgentType === 'outline' && parsed.meta_info) {
                         contentHtml = `
                             <div class="space-y-4">
                                 <div class="border-b border-slate-700 pb-2">
-                                    <h4 class="text-cyan-400 font-bold text-lg">${outline.meta_info.title || '无标题'}</h4>
+                                    <h4 class="text-cyan-400 font-bold text-lg">${parsed.meta_info.title || '无标题'}</h4>
                                     <div class="flex gap-2 mt-1">
-                                        ${outline.meta_info.genre.map(g => `<span class="px-2 py-0.5 bg-cyan-500/10 text-cyan-400 text-[10px] rounded-full">${g}</span>`).join('')}
-                                        <span class="text-slate-500 text-[10px]">风格: ${outline.meta_info.writing_style}</span>
+                                        ${(parsed.meta_info.genre || []).map(g => `<span class="px-2 py-0.5 bg-cyan-500/10 text-cyan-400 text-[10px] rounded-full">${g}</span>`).join('')}
+                                        <span class="text-slate-500 text-[10px]">风格: ${parsed.meta_info.writing_style}</span>
                                     </div>
                                 </div>
                                 <div class="space-y-2">
                                     <div class="text-xs text-slate-400 font-semibold uppercase">剧情节拍 (Plot Beats)</div>
                                     <div class="grid grid-cols-1 gap-2">
-                                        ${Object.entries(outline.plot_beats).map(([key, value]) => `
+                                        ${Object.entries(parsed.plot_beats || {}).map(([key, value]) => `
                                             <div class="flex gap-3 bg-slate-800/20 p-2 rounded-lg">
                                                 <div class="text-cyan-500 font-bold uppercase text-[10px] w-16">${key}</div>
                                                 <div class="text-slate-300 text-[11px]">${value}</div>
@@ -479,10 +554,25 @@
                                 </div>
                             </div>
                         `;
-                    } catch (e) {
-                         contentHtml = `<div class="text-[13px] text-slate-200 whitespace-pre-wrap">${data.proposal}</div>`;
+                    } else if (typeof parsed === 'object' && !Array.isArray(parsed)) {
+                        // 通用键值对渲染 (适用于 Worldview 等)
+                        contentHtml = `<div class="grid grid-cols-1 gap-2">`;
+                        for (const [key, val] of Object.entries(parsed)) {
+                            contentHtml += `
+                                <div class="bg-slate-800/30 p-2 rounded border border-slate-700">
+                                    <div class="text-[10px] text-cyan-400 font-bold uppercase mb-1">${key}</div>
+                                    <div class="text-[12px] text-slate-200">${typeof val === 'object' ? JSON.stringify(val) : val}</div>
+                                </div>
+                            `;
+                        }
+                        contentHtml += `</div>`;
+                    } else {
+                        contentHtml = `<div class="text-[13px] text-slate-200 whitespace-pre-wrap">${rawContent}</div>`;
                     }
-                } else if (data.draft_content) {
+                } catch (e) {
+                    contentHtml = `<div class="text-[13px] text-slate-200 whitespace-pre-wrap">${rawContent}</div>`;
+                }
+
                     contentHtml = `
                         <div class="space-y-4">
                              <div class="flex justify-between items-center bg-purple-500/10 p-2 rounded-lg border border-purple-500/20">
@@ -546,31 +636,236 @@
             lucide.createIcons();
         }
 
-        // Search logic
-        document.getElementById('search-btn').onclick = async () => {
-            const query = document.getElementById('search-input').value;
-            if(!query) return;
-            const res = await fetch('/api/search', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({query})
-            });
-            const data = await res.json();
-            renderLogs(data.map(d => ({
-                name: d.metadata.name || '搜索结果',
-                content: d.content,
-                category: d.metadata.category || 'Search',
-                timestamp: '刚刚'
-            })));
+        // Event listeners
+        const agentRunBtn = document.getElementById('agent-run-btn');
+        const agentFeedbackBtn = document.getElementById('agent-feedback-btn');
+        const agentApproveBtn = document.getElementById('agent-approve-btn');
+        if (agentRunBtn) agentRunBtn.onclick = runAgent;
+        if (agentFeedbackBtn) agentFeedbackBtn.onclick = () => submitFeedback(false);
+        if (agentApproveBtn) agentApproveBtn.onclick = () => submitFeedback(true);
+
+        // Template Management Logic
+        let allTemplates = {};
+        let selectedCategory = null;
+
+        async function fetchTemplates() {
+            try {
+                const res = await fetch('/api/worldview/templates');
+                allTemplates = await res.json();
+                renderTemplateCategories();
+            } catch (err) {
+                console.error("Fetch templates error:", err);
+            }
+        }
+
+        function renderTemplateCategories() {
+            const categoriesDiv = document.getElementById('template-categories');
+            const categories = Object.keys(allTemplates);
+            
+            categoriesDiv.innerHTML = categories.map(cat => {
+                const nameZh = allTemplates[cat].name_zh || '';
+                const label = nameZh ? `${cat} <span class="text-slate-500 text-xs ml-1">${nameZh}</span>` : cat;
+                return `
+                <div onclick="selectTemplate('${cat}')" 
+                    class="p-4 rounded-2xl bg-slate-800/20 border border-slate-800 hover:border-indigo-500/40 hover:bg-slate-800/50 transition-all cursor-pointer group text-left ${selectedCategory === cat ? 'border-indigo-500/60 bg-slate-800/60' : ''}">
+                    <div class="text-sm font-semibold group-hover:text-indigo-400 transition-colors">${label}</div>
+                </div>`;
+            }).join('');
+            
+            if (categories.length === 0) {
+                categoriesDiv.innerHTML = '<div class="text-xs text-slate-500 italic p-4">暂无模板数据...</div>';
+            }
+        }
+
+        function selectTemplate(category) {
+            selectedCategory = category;
+            renderTemplateCategories();
+            
+            const categoryTitle = document.getElementById('current-template-category');
+            const editor = document.getElementById('template-editor');
+            const saveBtn = document.getElementById('save-template-btn');
+            const deleteBtn = document.getElementById('delete-template-btn');
+            const status = document.getElementById('template-status');
+            
+            const nameZh = allTemplates[category]?.name_zh || '';
+            categoryTitle.innerText = `分类: ${category}${nameZh ? ' (' + nameZh + ')' : ''}`;
+            editor.value = JSON.stringify(allTemplates[category], null, 4);
+            editor.readOnly = false;
+            saveBtn.classList.remove('hidden');
+            if (deleteBtn) deleteBtn.classList.remove('hidden');
+            status.innerText = "编辑模式";
+            status.className = "text-indigo-400 font-bold";
+        }
+
+        // --- New Category Modal ---
+        function showNewCategoryModal() {
+            document.getElementById('new-category-modal').classList.remove('hidden');
+            document.getElementById('new-cat-id').value = '';
+            document.getElementById('new-cat-name').value = '';
+            document.getElementById('new-cat-template').value = '';
+            if (window.lucide) lucide.createIcons();
+        }
+        function hideNewCategoryModal() {
+            document.getElementById('new-category-modal').classList.add('hidden');
+        }
+
+        async function createNewCategory() {
+            const catId = document.getElementById('new-cat-id').value.trim().toLowerCase();
+            const nameZh = document.getElementById('new-cat-name').value.trim();
+            const templateRaw = document.getElementById('new-cat-template').value.trim();
+            
+            if (!catId || !nameZh) {
+                alert('请输入分类标识和中文名称');
+                return;
+            }
+            
+            let templateFields = null;
+            if (templateRaw) {
+                try {
+                    templateFields = JSON.parse(templateRaw);
+                } catch (e) {
+                    alert('初始模板 JSON 格式错误: ' + e.message);
+                    return;
+                }
+            }
+            
+            try {
+                const res = await fetch('/api/worldview/templates/new-category', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        category: catId,
+                        name_zh: nameZh,
+                        template: templateFields
+                    })
+                });
+                const result = await res.json();
+                if (result.error) throw new Error(result.error);
+                
+                hideNewCategoryModal();
+                alert(`分类 '${catId}' (${nameZh}) 创建成功！`);
+                await fetchTemplates();
+                selectTemplate(catId);
+            } catch (err) {
+                alert('创建失败: ' + err.message);
+            }
+        }
+
+        async function deleteCategory() {
+            if (!selectedCategory) return;
+            const nameZh = allTemplates[selectedCategory]?.name_zh || '';
+            const label = nameZh ? `${selectedCategory} (${nameZh})` : selectedCategory;
+            
+            if (!confirm(`确定要删除分类 "${label}" 吗？此操作不可撤销。`)) return;
+            
+            try {
+                const res = await fetch('/api/worldview/templates', {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ category: selectedCategory })
+                });
+                const result = await res.json();
+                if (result.error) throw new Error(result.error);
+                
+                alert(`分类 '${label}' 已删除`);
+                selectedCategory = null;
+                document.getElementById('current-template-category').innerText = '请选择一个分类';
+                document.getElementById('template-editor').value = '';
+                document.getElementById('template-editor').readOnly = true;
+                document.getElementById('save-template-btn').classList.add('hidden');
+                document.getElementById('delete-template-btn').classList.add('hidden');
+                document.getElementById('template-status').innerText = '只读模式';
+                await fetchTemplates();
+            } catch (err) {
+                alert('删除失败: ' + err.message);
+            }
+        }
+
+
+        async function saveTemplate() {
+            if (!selectedCategory) return;
+            
+            const editor = document.getElementById('template-editor');
+            const saveBtn = document.getElementById('save-template-btn');
+            const status = document.getElementById('template-status');
+            
+            try {
+                const templateData = JSON.parse(editor.value);
+                saveBtn.disabled = true;
+                saveBtn.innerText = "保存中...";
+                
+                const res = await fetch('/api/worldview/templates', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        category: selectedCategory,
+                        template_data: templateData
+                    })
+                });
+                
+                const result = await res.json();
+                if (result.error) throw new Error(result.error);
+                
+                alert(`模板 '${selectedCategory}' 更新成功！`);
+                allTemplates[selectedCategory] = templateData;
+                status.innerText = "保存完毕";
+                setTimeout(() => {
+                    status.innerText = "编辑模式";
+                }, 2000);
+            } catch (err) {
+                alert("保存失败: " + err.message);
+            } finally {
+                saveBtn.disabled = false;
+                saveBtn.innerText = "保存模板";
+            }
+        }
+
+        // --- Dashboard Initialization ---
+        async function initDashboard() {
+            console.log("[DASHBOARD] Starting initialization...");
+            try {
+                // 1. Initial Icon Render
+                if (window.lucide) {
+                    lucide.createIcons();
+                    console.log("[DASHBOARD] Lucide icons created.");
+                }
+
+                // 2. Fetch Literature Archive
+                console.log("[DASHBOARD] Fetching lore...");
+                await fetchLore();
+                console.log("[DASHBOARD] Lore fetch complete.");
+
+                // 3. Pre-fetch Templates
+                console.log("[DASHBOARD] Fetching templates...");
+                await fetchTemplates();
+                console.log("[DASHBOARD] Templates fetch complete.");
+
+            } catch (err) {
+                console.error("[DASHBOARD] Critical initialization error:", err);
+            }
+        }
+
+        // Handle tab switching for templates specifically
+        const originalSwitchTab = switchTab;
+        window.switchTab = function(tabId) {
+            console.log("[DASHBOARD] Switching to tab:", tabId);
+            if (typeof originalSwitchTab === 'function') originalSwitchTab(tabId);
+            if (tabId === 'template' && Object.keys(allTemplates).length === 0) {
+                fetchTemplates();
+            }
         };
 
-        // Event listeners
-        document.getElementById('agent-run-btn').onclick = runAgent;
-        document.getElementById('agent-feedback-btn').onclick = () => submitFeedback(false);
-        document.getElementById('agent-approve-btn').onclick = () => submitFeedback(true);
+        // Bind static elements
+        const saveTemplateBtn = document.getElementById('save-template-btn');
+        if (saveTemplateBtn) saveTemplateBtn.onclick = saveTemplate;
+        const deleteTemplateBtn = document.getElementById('delete-template-btn');
+        if (deleteTemplateBtn) deleteTemplateBtn.onclick = deleteCategory;
 
-        fetchLore();
-        lucide.createIcons();
+        // Start everything
+        initDashboard();
+
+
     </script>
+
 </body>
 </html>

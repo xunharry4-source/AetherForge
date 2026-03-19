@@ -3,10 +3,18 @@ import json
 import datetime
 from typing import Annotated, TypedDict, List
 from langgraph.graph import StateGraph, START, END
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
-from langchain_chroma import Chroma
-import chromadb
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.types import interrupt, Command
+
+# Import shared utilities
+from lore_utils import (
+    get_llm, 
+    get_vector_store, 
+    get_prohibited_rules, 
+    get_worldview_context_by_category, 
+    get_unified_context,
+    parse_json_safely
+)
 
 # ==========================================
 # 0. State Definition
@@ -20,7 +28,7 @@ class WritingState(TypedDict):
     # 过程数据
     scene_list: List[dict]      # 拆解后的场次清单 [{'title': '...', 'description': '...'}]
     active_scene_index: int     # 当前正在写的场次索引
-    context_data: str           # 从 ChromaDB 检索出的背景知识
+    context_data: str           # 从 ChromaDB/MongoDB 检索出的背景知识
     
     # 输出数据
     draft_content: str          # 生成的初稿正文
@@ -35,23 +43,6 @@ class WritingState(TypedDict):
     scene_status_summary: str   # 场景逻辑快照 (天气、物品毁损)
     visual_snapshot_path: str   # 视觉快照图片路径
     visual_description_summary: str # 视觉描述摘要 (用于保持后续场景的视觉一致性)
-
-# ==========================================
-# Clients Init
-# ==========================================
-from config_utils import CONFIG
-GOOGLE_API_KEY = CONFIG.get("GOOGLE_API_KEY")
-llm = ChatGoogleGenerativeAI(model=CONFIG.get("DEFAULT_MODEL"), google_api_key=GOOGLE_API_KEY)
-# JSON mode client
-llm_json = ChatGoogleGenerativeAI(
-    model=CONFIG.get("DEFAULT_MODEL"), 
-    google_api_key=GOOGLE_API_KEY,
-    model_kwargs={"response_mime_type": "application/json"}
-)
-
-embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001", google_api_key=GOOGLE_API_KEY, task_type="retrieval_document")
-chroma_client = chromadb.PersistentClient(path="./chroma_db")
-vector_store = Chroma(client=chroma_client, collection_name="pga_lore", embedding_function=embeddings)
 
 # ==========================================
 # Nodes Implementation
@@ -77,8 +68,10 @@ def plan_scenes_func(state: WritingState):
   ]
 }}
 """
-    res = llm_json.invoke(prompt)
-    data = json.loads(res.content)
+    res = get_llm(json_mode=True).invoke(prompt)
+    data = parse_json_safely(res.content)
+    if not data:
+        return {"status_message": "场次拆解失败：JSON 解析异常"}
     return {
         "scene_list": data.get("scene_list", []),
         "active_scene_index": 0,
@@ -86,14 +79,13 @@ def plan_scenes_func(state: WritingState):
     }
 
 def load_context_func(state: WritingState):
-    """语境加载节点 (Context Loader)"""
+    """语境加载节点 (Context Loader) - 使用智能路由检索"""
     idx = state['active_scene_index']
     scene = state['scene_list'][idx]
     
-    # 根据场次描述检索世界观
+    # 使用智能路由检索世界观 (优先 MongoDB 权威定义)
     query = f"{scene['title']} {scene['description']}"
-    docs = vector_store.similarity_search(query, k=5)
-    rag_context = "\n".join([d.page_content for d in docs])
+    rag_context = get_unified_context(query)
     
     return {
         "context_data": rag_context,
@@ -105,8 +97,19 @@ def write_draft_func(state: WritingState):
     idx = state['active_scene_index']
     scene = state['scene_list'][idx]
     
+    feedback_section = ""
+    if state.get('user_feedback'):
+        feedback_section = f"""
+【！！！当前核心修改需求 - 必须首先满足！！！】
+用户指出以下问题或要求：
+>>> {state['user_feedback']} <<<
+你必须在本场次的撰写中优先落实上述修改建议。
+"""
+
     prompt = f"""你是一个拥有卓越文采的小说家（Scribe）。
 你要根据世界观设定和场次计划，撰写具体的小说正文。
+
+{feedback_section}
 
 【大纲背景】
 {state['outline_content']}
@@ -115,21 +118,18 @@ def write_draft_func(state: WritingState):
 标题：{scene['title']}
 描述：{scene['description']}
 
-【世界观语境 (严格遵守)】
+【世界观语境 (严格遵守权威定义)】
 {state['context_data']}
-
-【用户反馈】
-{state.get('user_feedback', '')}
 
 【写作要求】
 1. 严格遵循大纲中的写作风格 (Writing Style)。
 2. 保持角色人设一致性。
 3. 增加感官细节（嗅觉、听觉、视觉）。
-4. 对话要自然。
+4. 绝对不触碰违反热力学第二定律或 PGA 禁令的内容。
 
 直接输出小说正文内容：
 """
-    res = llm.invoke(prompt)
+    res = get_llm().invoke(prompt)
     return {
         "draft_content": res.content,
         "user_feedback": "",
@@ -138,7 +138,13 @@ def write_draft_func(state: WritingState):
 
 def audit_logic_func(state: WritingState):
     """逻辑审计节点 (Logic Auditor)"""
-    # 尝试加载上一步的快照以进行一致性检查
+    # 结合禁令和分类规则进行严苛审计
+    prohibited_items = get_prohibited_rules()
+    
+    idx = state['active_scene_index']
+    scene = state['scene_list'][idx]
+    worldview_rules = get_worldview_context_by_category(f"{scene['title']} {scene['description']}")
+    
     prev_snapshot = ""
     if state.get("char_status_summary"):
         prev_snapshot = f"【上场人物状态快照】：\n{state['char_status_summary']}"
@@ -146,7 +152,13 @@ def audit_logic_func(state: WritingState):
     prompt = f"""你是一个严苛的小说逻辑审计员。
 你的任务是检查正文内容是否与世界观设定、角色背景以及【之前的快照状态】存在冲突。
 
-【世界观设定】
+【最高禁令】
+{prohibited_items}
+
+【官方定义参考】
+{worldview_rules}
+
+【检索到的背景】
 {state['context_data']}
 
 {prev_snapshot}
@@ -157,11 +169,13 @@ def audit_logic_func(state: WritingState):
 请输出 JSON：
 {{
   "is_consistent": true/false,
-  "audit_log": "如果存在逻辑漏洞、人设崩塌、物理错误（尤其是与上场快照冲突的地方），在此详细列出。若通过，写'通过'。"
+  "audit_log": "如果存在逻辑漏洞、人设崩塌、物理错误（尤其是触犯禁令或官方定义的地方），在此详细列出。若通过，写'通过'。"
 }}
 """
-    res = llm_json.invoke(prompt)
-    data = json.loads(res.content)
+    res = get_llm(json_mode=True).invoke(prompt)
+    data = parse_json_safely(res.content)
+    if not data:
+        return {"is_audit_passed": False, "status_message": "审计解析异常"}
     is_ok = data.get("is_consistent", False)
     
     return {
@@ -172,7 +186,11 @@ def audit_logic_func(state: WritingState):
 
 def human_review_node(state: WritingState):
     """等待用户批准节点"""
-    return {"status_message": "请预览正文，点击'批准'以存档，或输入修改意见。"}
+    user_input = interrupt({
+        "status_message": "请预览正文，点击'批准'以存档，或输入修改意见。",
+        "proposal": state['draft_content']
+    })
+    return {"user_feedback": user_input, "is_approved": user_input == "批准"}
 
 def prose_saver_func(state: WritingState):
     """正文存档节点"""
@@ -193,20 +211,18 @@ def prose_saver_func(state: WritingState):
     next_idx = idx + 1
     return {
         "active_scene_index": next_idx,
-        "is_approved": False, # 重置审核状态
+        "is_approved": False, 
         "status_message": f"第 {idx+1} 场已存档，正在生成状态快照..."
     }
 
 def snapshot_node_func(state: WritingState):
     """快照生成节点 (Snapshot Agent)"""
-    idx = state['active_scene_index'] - 1 # saver 已经把 index + 1 了
+    idx = state['active_scene_index'] - 1 
     
-    # 尝试读取上一次的视觉描述作为参考
     prev_visual_ref = ""
     if state.get("visual_description_summary"):
         prev_visual_ref = f"【上一次的视觉风格参考】：\n{state['visual_description_summary']}"
 
-    # 1. 提取逻辑状态
     extract_prompt = f"""请从以下正文中提取人物和场景的“状态快照”。
 为了保持视觉连贯性，请参考之前的视觉描述。
 
@@ -222,17 +238,17 @@ def snapshot_node_func(state: WritingState):
   "visual_description": "一张用于生成插画的写实风格视觉描述（必须保持主角脸部、伤疤、衣服风格的一致性）"
 }}
 """
-    res = llm_json.invoke(extract_prompt)
-    data = json.loads(res.content)
+    res = get_llm(json_mode=True).invoke(extract_prompt)
+    data = parse_json_safely(res.content)
+    if not data:
+        return {"status_message": "快照生成失败：JSON 解析异常"}
     
     char_status = data.get("char_status", "状态稳定")
     scene_status = data.get("scene_status", "环境正常")
     visual_desc = data.get("visual_description", "")
     
-    # 2. 生成视觉快照 (模拟调用)
     image_path = f"snapshots/visual_{state['outline_id']}_{idx}.jpg"
     
-    # 3. 持久化快照
     snapshot_record = {
         "outline_id": state['outline_id'],
         "scene_index": idx,
@@ -261,7 +277,6 @@ def snapshot_node_func(state: WritingState):
 # ==========================================
 workflow = StateGraph(WritingState)
 
-# Nodes
 workflow.add_node("plan_scenes", plan_scenes_func)
 workflow.add_node("load_context", load_context_func)
 workflow.add_node("write_draft", write_draft_func)
@@ -270,7 +285,6 @@ workflow.add_node("human_review", human_review_node)
 workflow.add_node("prose_saver", prose_saver_func)
 workflow.add_node("snapshot_node", snapshot_node_func)
 
-# Edges
 workflow.add_edge(START, "plan_scenes")
 workflow.add_edge("plan_scenes", "load_context")
 workflow.add_edge("load_context", "write_draft")
@@ -290,7 +304,7 @@ def route_after_human(state: WritingState):
     fb = (state.get("user_feedback") or "").strip()
     if fb == "批准": return "prose_saver"
     if fb == "终止": return END
-    if fb: return "write_draft" # 有意见则重写当前场次
+    if fb: return "write_draft" 
     return END
 
 workflow.add_conditional_edges("human_review", route_after_human, {

@@ -2,10 +2,19 @@ import os
 import json
 from typing import Annotated, TypedDict, List
 from langgraph.graph import StateGraph, START, END
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
-from langchain_chroma import Chroma
-import chromadb
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.types import interrupt, Command
+import datetime
+
+# Import shared utilities
+from lore_utils import (
+    get_llm, 
+    get_vector_store, 
+    get_prohibited_rules, 
+    get_worldview_context_by_category, 
+    get_unified_context,
+    parse_json_safely
+)
 
 # ==========================================
 # 0. State Definition
@@ -22,33 +31,27 @@ class OutlineState(TypedDict):
     status_message: str    # 执行进度描述
 
 # ==========================================
-# Clients Init
-# ==========================================
-from config_utils import CONFIG
-GOOGLE_API_KEY = CONFIG.get("GOOGLE_API_KEY")
-llm = ChatGoogleGenerativeAI(model=CONFIG.get("DEFAULT_MODEL"), google_api_key=GOOGLE_API_KEY)
-llm_json = ChatGoogleGenerativeAI(
-    model=CONFIG.get("DEFAULT_MODEL"), 
-    google_api_key=GOOGLE_API_KEY,
-    model_kwargs={"response_mime_type": "application/json"}
-)
-
-embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001", google_api_key=GOOGLE_API_KEY, task_type="retrieval_document")
-chroma_client = chromadb.PersistentClient(path="./chroma_db")
-vector_store = Chroma(client=chroma_client, collection_name="pga_lore", embedding_function=embeddings)
-
-# ==========================================
 # Nodes Implementation
 # ==========================================
 
 def outline_planner(state: OutlineState):
     """大纲策划节点"""
-    # 检索世界观
-    docs = vector_store.similarity_search(state['query'], k=3)
-    rag_context = "\n".join([d.page_content for d in docs])
+    # 使用智能路由检索世界观 (优先 MongoDB 权威定义)
+    rag_context = get_unified_context(state['query'])
     
+    feedback_section = ""
+    if state.get('user_feedback'):
+        feedback_section = f"""
+【！！！当前核心修改需求 - 必须首先满足！！！】
+用户指出以下问题或要求：
+>>> {state['user_feedback']} <<<
+你必须在本次生成中根据此反馈调整大纲。
+"""
+
     prompt = f"""你是一个专精于“万象星际协议体 (PGA)”世界观的小说策划专家。
-你的任务是根据用户的需求编写一份详尽的小说大纲。你必须严格按照以下 JSON Schema 输出内容：
+你的任务是根据用户的需求编写一份详尽的小说大纲。
+
+{feedback_section}
 
 【JSON Schema】
 {{
@@ -87,21 +90,19 @@ def outline_planner(state: OutlineState):
   "themes": ["主题"]
 }}
 
-【世界观背景】
+【世界观背景/权威参考】
 {rag_context}
 
 【用户需求】
 {state['query']}
-{state['user_feedback']}
 
 【之前的审核意见】
 {state['review_log']}
 
 请直接输出符合 Schema 的 JSON 对象。
 """
-    res = llm_json.invoke(prompt)
+    res = get_llm(json_mode=True).invoke(prompt)
     curr_iterations = state.get('iterations', 0)
-    if curr_iterations is None: curr_iterations = 0
     
     return {
         "proposal": res.content,
@@ -112,16 +113,23 @@ def outline_planner(state: OutlineState):
 
 def outline_critic(state: OutlineState):
     """大纲审计节点"""
+    prohibited_items = get_prohibited_rules()
+    worldview_rules = get_worldview_context_by_category(state['query'])
+    
     prompt = f"""你是一个负责维护 PGA 世界观与故事逻辑严谨性的“剧本审核官”。
 你必须将审核结果输出为 **JSON 格式**。
 
+【最高禁令 - 必须绝对遵循】
+{prohibited_items}
+
+【官方定义参考】
+{worldview_rules}
+
 【审核标准】
 1. 物理一致性：是否存在非法的时间旅行、无限能量或违背热力学的情况？
-2. Schema 完备性：是否完整填充了 meta_info (含 writing_style), core_hook, character_roster, plot_beats 等字段？
-3. 风格一致性：大纲描述的语气与设定的 writing_style 是否契合？
-4. 钩子逻辑：开端是否具备足够的张力且符合背景？
-5. 节奏逻辑：事件升级是否合理，是否存在天降神兵？
-6. 角色动机：角色的行为是否在其背景下具备物理与社会合理性？
+2. Schema 完备性：是否完整填充了所有字段？
+3. 角色动机：角色的行为是否在其背景下具备物理与社会合理性？
+4. 官方定义匹配：如果涉及特定种族或势力，是否符合库内权威定义？
 
 【输出格式】
 {{
@@ -133,12 +141,13 @@ def outline_critic(state: OutlineState):
 待审核大纲 JSON：
 {state['proposal']}
 """
-    res = llm_json.invoke(prompt)
+    res = get_llm(json_mode=True).invoke(prompt)
     try:
-        audit_data = json.loads(res.content)
+        audit_data = parse_json_safely(res.content)
+        if not audit_data:
+             raise ValueError("Invalid audit JSON")
         is_ok = audit_data.get("status") == "合理"
         curr_audit_count = state.get('audit_count', 0)
-        if curr_audit_count is None: curr_audit_count = 0
         
         return {
             "review_log": audit_data.get("audit_log", ""),
@@ -148,19 +157,19 @@ def outline_critic(state: OutlineState):
         }
     except Exception:
         curr_audit_count = state.get('audit_count', 0)
-        if curr_audit_count is None: curr_audit_count = 0
         return {"is_approved": False, "audit_count": int(curr_audit_count) + 1, "status_message": "审计解析异常"}
 
 def human_gate(state: OutlineState):
     """等待用户反馈节点"""
-    return {"status_message": "大纲已就绪，等待您的调整建议或批准..."}
-
-import datetime
+    user_input = interrupt({"status_message": "大纲已就绪，等待您的调整建议或批准...", "proposal": state['proposal']})
+    return {"user_feedback": user_input, "is_approved": user_input == "批准"}
 
 def outline_saver(state: OutlineState):
     """持久化节点：将通过审核的大纲存入 outlines_db.json"""
     try:
-        outline_data = json.loads(state['proposal'])
+        outline_data = parse_json_safely(state['proposal'])
+        if not outline_data:
+            raise ValueError("Invalid proposal JSON")
         record = {
             "id": f"outline_{int(datetime.datetime.now().timestamp())}",
             "timestamp": datetime.datetime.now().isoformat(),
@@ -190,7 +199,6 @@ workflow.add_edge("planner", "critic")
 
 def route_after_critic(state: OutlineState):
     audit_count = state.get("audit_count", 0)
-    if audit_count is None: audit_count = 0
     if state["is_approved"] or int(audit_count) >= 3:
         return "human"
     return "planner"
@@ -198,9 +206,7 @@ def route_after_critic(state: OutlineState):
 workflow.add_conditional_edges("critic", route_after_critic, {"human": "human", "planner": "planner"})
 
 def route_after_human(state: OutlineState):
-    fb = state.get("user_feedback")
-    if fb is None: fb = ""
-    fb = str(fb).strip()
+    fb = state.get("user_feedback", "").strip()
     if fb == "批准": return "saver"
     if fb == "终止": return END
     if fb: return "planner" # 有反馈则重新生成
