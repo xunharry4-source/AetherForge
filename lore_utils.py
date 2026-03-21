@@ -178,8 +178,8 @@ def get_lore_by_doc_id(doc_id: str) -> Optional[Dict[str, Any]]:
         if doc: 
             if "_id" in doc: del doc["_id"]
             return doc
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"MongoDB lookup failed for config {doc_id}, falling back to local JSON: {e}")
         
     # 后备尝试本地 JSON (JSONL 格式)
     try:
@@ -197,8 +197,8 @@ def get_lore_by_doc_id(doc_id: str) -> Optional[Dict[str, Any]]:
                             return data
                     except Exception:
                         continue
-    except Exception:
-        pass
+    except Exception as e:
+        logger.error(f"Failed to read local JSON fallback for {doc_id}: {e}")
     return None
 
 def sync_lore_to_db(entity: Dict[str, Any]):
@@ -221,7 +221,8 @@ def sync_lore_to_db(entity: Dict[str, Any]):
         db = mongo_client["pga_worldview"]
         coll = db["lore"]
         coll.update_one({"doc_id": entity["doc_id"]}, {"$set": entity}, upsert=True)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Failed to sync to MongoDB, falling back to JSONL append: {e}")
         # Fallback to worldview_db.json
         with open("worldview_db.json", "a", encoding="utf-8") as f:
             f.write(json.dumps(entity, ensure_ascii=False) + "\n")
@@ -289,6 +290,23 @@ def sync_lore_to_db(entity: Dict[str, Any]):
     except Exception as e:
         print(f"[SYNC ERROR] ChromaDB sync failed for {entity['name']}: {e}")
 
+def get_evolution_rules() -> str:
+    """提取系统在运行中自主学习沉淀的防错法则"""
+    try:
+        path = os.path.join(os.path.dirname(__file__), ".gemini", "skills", "evolution", "SKILL.md")
+        if not os.path.exists(path):
+            return "暂无进化法则。"
+        with open(path, "r", encoding="utf-8") as f:
+            content = f.read()
+            start = "<!-- EVOLUTION_RECORDS_START -->"
+            end = "<!-- EVOLUTION_RECORDS_END -->"
+            if start in content and end in content:
+                records = content.split(start)[1].split(end)[0].strip()
+                return records if records else "暂无进化法则。"
+            return "暂无进化法则。"
+    except Exception:
+        return "暂无进化法则。"
+
 def get_llm(json_mode=False):
     key = _key_manager.get_key()
     if not key:
@@ -301,9 +319,16 @@ def get_llm(json_mode=False):
         return ChatGoogleGenerativeAI(
             model=model_name, 
             google_api_key=key,
-            model_kwargs={"response_mime_type": "application/json"}
+            max_retries=5,
+            timeout=120,
+            response_mime_type="application/json"
         )
-    return ChatGoogleGenerativeAI(model=model_name, google_api_key=key)
+    return ChatGoogleGenerativeAI(
+        model=model_name, 
+        google_api_key=key,
+        max_retries=5,
+        timeout=120
+    )
 
 def parse_json_safely(text: str) -> Any:
     """
@@ -494,15 +519,17 @@ def upsert_category_template(category, template_data):
         pass
         
     # Fallback/Sync to local JSON
-    all_templates = []
+    all_templates: List[Dict[str, Any]] = []
     if os.path.exists("worldview_templates.json"):
         with open("worldview_templates.json", "r", encoding="utf-8") as f:
-            all_templates = json.load(f)
+            loaded = json.load(f)
+            if isinstance(loaded, list):
+                all_templates = loaded
             
     # Update existing or append
     found = False
     for i, t in enumerate(all_templates):
-        if t.get("category") == category.lower():
+        if isinstance(t, dict) and t.get("category") == category.lower():
             all_templates[i] = data
             found = True
             break
@@ -886,12 +913,26 @@ def sync_archive_to_all_stores(item_id: str, item_type: str, content: str, name:
         db = get_mongodb_db()
         if db is not None:
             try:
-                # 统一更新到 lore 集合
-                db["lore"].update_one(
-                    {"doc_id": item_id},
-                    {"$set": {"content": content, "name": name, "timestamp": datetime.now().isoformat()}},
-                    upsert=True
-                )
+                doc = db["lore"].find_one({"doc_id": item_id})
+                if doc and doc.get("content") and doc.get("content") != content:
+                    db["lore"].update_one(
+                        {"doc_id": item_id},
+                        {
+                            "$set": {"content": content, "name": name, "timestamp": datetime.now().isoformat()},
+                            "$push": {
+                                "history": {
+                                    "$each": [{"timestamp": doc.get("timestamp", datetime.now().isoformat()), "content": doc.get("content")}],
+                                    "$slice": -10
+                                }
+                            }
+                        }
+                    )
+                else:
+                    db["lore"].update_one(
+                        {"doc_id": item_id},
+                        {"$set": {"content": content, "name": name, "timestamp": datetime.now().isoformat()}},
+                        upsert=True
+                    )
                 print(f"[lore_utils] MongoDB sync success for {item_id}")
             except Exception as e:
                 print(f"[lore_utils] MongoDB sync error: {e}")
@@ -907,12 +948,12 @@ def sync_archive_to_all_stores(item_id: str, item_type: str, content: str, name:
             # 由于 LangChain Chroma 封装的原因，直接按 metadata 删除比较慢
             # 如果我们在存储时将 doc_id 设置为 Chroma ID，则可以直接 update
             
-            # 获取 embedding 函数
+            # 获取 embedding 函数 (Google text-embedding-004)
             emb = vector_store.embeddings
             
             # 使用原生 client 进行操作以获得更好控制
             client = chromadb.PersistentClient(path="./chroma_db")
-            collection = client.get_collection("pga_lore")
+            collection = client.get_collection(get_lore_collection_name())
             
             # 尝试删除旧记录 (如果存在)
             # 注意：item_id 必须与存储时的 ID 一致
@@ -921,9 +962,11 @@ def sync_archive_to_all_stores(item_id: str, item_type: str, content: str, name:
             except:
                 pass
             
-            # 生成新 embedding 并插入
+            # 生成新 embedding 并插入 (显式调用 embedding 函数提取 3072 维度的高维向量)
+            content_embeddings = emb.embed_documents([content])
             collection.add(
                 ids=[item_id],
+                embeddings=content_embeddings,
                 documents=[content],
                 metadatas=[{"name": name or "未命名", "type": item_type, "doc_id": item_id, "timestamp": datetime.now().isoformat()}]
             )

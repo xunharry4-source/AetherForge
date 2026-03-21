@@ -1,0 +1,42 @@
+2026-03-22 01:05:50,153 - novel_agent.config - INFO - Checking config at: /Users/harry/Documents/git/novel_agent/config.json
+2026-03-22 01:05:50,153 - novel_agent.config - INFO - Loaded keys from JSON: ['GOOGLE_API_KEYS']
+2026-03-22 01:05:50,153 - novel_agent.config - INFO - No GOOGLE_API_KEY found in config or env. Using first key from GOOGLE_API_KEYS.
+2026-03-22 01:06:24,678 - novel_agent.config - INFO - Checking config at: /Users/harry/Documents/git/novel_agent/config.json
+2026-03-22 01:06:24,678 - novel_agent.config - INFO - Loaded keys from JSON: ['GOOGLE_API_KEYS']
+2026-03-22 01:06:24,678 - novel_agent.config - INFO - No GOOGLE_API_KEY found in config or env. Using first key from GOOGLE_API_KEYS.
+2026-03-22 01:15:18,072 - novel_agent.config - INFO - Checking config at: /Users/harry/Documents/git/novel_agent/config.json
+2026-03-22 01:15:18,072 - novel_agent.config - INFO - Loaded keys from JSON: ['GOOGLE_API_KEYS']
+2026-03-22 01:15:18,072 - novel_agent.config - INFO - No GOOGLE_API_KEY found in config or env. Using first key from GOOGLE_API_KEYS.
+2026-03-22 01:16:10,224 - novel_agent.config - INFO - Checking config at: /Users/harry/Documents/git/novel_agent/config.json
+2026-03-22 01:16:10,224 - novel_agent.config - INFO - Loaded keys from JSON: ['GOOGLE_API_KEYS']
+2026-03-22 01:16:10,224 - novel_agent.config - INFO - No GOOGLE_API_KEY found in config or env. Using first key from GOOGLE_API_KEYS.
+2026-03-22 01:16:16,181 - novel_agent.config - INFO - Checking config at: /Users/harry/Documents/git/novel_agent/config.json
+2026-03-22 01:16:16,181 - novel_agent.config - INFO - Loaded keys from JSON: ['GOOGLE_API_KEYS']
+2026-03-22 01:16:16,181 - novel_agent.config - INFO - No GOOGLE_API_KEY found in config or env. Using first key from GOOGLE_API_KEYS.
+2026-03-22 01:16:26,513 - novel_agent.config - INFO - Checking config at: /Users/harry/Documents/git/novel_agent/config.json
+2026-03-22 01:16:26,513 - novel_agent.config - INFO - Loaded keys from JSON: ['GOOGLE_API_KEYS']
+2026-03-22 01:16:26,513 - novel_agent.config - INFO - No GOOGLE_API_KEY found in config or env. Using first key from GOOGLE_API_KEYS.
+2026-03-22 01:16:37,886 - novel_agent.config - INFO - Checking config at: /Users/harry/Documents/git/novel_agent/config.json
+2026-03-22 01:16:37,886 - novel_agent.config - INFO - Loaded keys from JSON: ['GOOGLE_API_KEYS']
+2026-03-22 01:16:37,886 - novel_agent.config - INFO - No GOOGLE_API_KEY found in config or env. Using first key from GOOGLE_API_KEYS.
+2026-03-22 01:16:47,417 - novel_agent.config - INFO - Checking config at: /Users/harry/Documents/git/novel_agent/config.json
+2026-03-22 01:16:47,417 - novel_agent.config - INFO - Loaded keys from JSON: ['GOOGLE_API_KEYS']
+2026-03-22 01:16:47,418 - novel_agent.config - INFO - No GOOGLE_API_KEY found in config or env. Using first key from GOOGLE_API_KEYS.
+2026-03-22 01:16:57,772 - novel_agent.config - INFO - Checking config at: /Users/harry/Documents/git/novel_agent/config.json
+2026-03-22 01:16:57,773 - novel_agent.config - INFO - Loaded keys from JSON: ['GOOGLE_API_KEYS']
+2026-03-22 01:16:57,773 - novel_agent.config - INFO - No GOOGLE_API_KEY found in config or env. Using first key from GOOGLE_API_KEYS.
+2026-03-22 01:17:02,982 - novel_agent.config - INFO - Checking config at: /Users/harry/Documents/git/novel_agent/config.json
+2026-03-22 01:17:02,982 - novel_agent.config - INFO - Loaded keys from JSON: ['GOOGLE_API_KEYS']
+2026-03-22 01:17:02,982 - novel_agent.config - INFO - No GOOGLE_API_KEY found in config or env. Using first key from GOOGLE_API_KEYS.
+2026-03-22 01:17:13,456 - novel_agent.config - INFO - Checking config at: /Users/harry/Documents/git/novel_agent/config.json
+2026-03-22 01:17:13,456 - novel_agent.config - INFO - Loaded keys from JSON: ['GOOGLE_API_KEYS']
+2026-03-22 01:17:13,456 - novel_agent.config - INFO - No GOOGLE_API_KEY found in config or env. Using first key from GOOGLE_API_KEYS.
+2026-03-22 01:17:19,166 - novel_agent.config - INFO - Checking config at: /Users/harry/Documents/git/novel_agent/config.json
+2026-03-22 01:17:19,166 - novel_agent.config - INFO - Loaded keys from JSON: ['GOOGLE_API_KEYS']
+2026-03-22 01:17:19,166 - novel_agent.config - INFO - No GOOGLE_API_KEY found in config or env. Using first key from GOOGLE_API_KEYS.
+2026-03-22 01:17:28,808 - novel_agent.config - INFO - Checking config at: /Users/harry/Documents/git/novel_agent/config.json
+2026-03-22 01:17:28,808 - novel_agent.config - INFO - Loaded keys from JSON: ['GOOGLE_API_KEYS']
+2026-03-22 01:17:28,808 - novel_agent.config - INFO - No GOOGLE_API_KEY found in config or env. Using first key from GOOGLE_API_KEYS.
+2026-03-22 01:17:34,867 - novel_agent.config - INFO - Checking config at: /Users/harry/Documents/git/novel_agent/config.json
+2026-03-22 01:17:34,867 - novel_agent.config - INFO - Loaded keys from JSON: ['GOOGLE_API_KEYS']
+2026-03-22 01:17:34,867 - novel_agent.config - INFO - No GOOGLE_API_KEY found in config or env. Using first key from GOOGLE_API_KEYS.

@@ -28,7 +28,8 @@ from lore_utils import (
     get_entity_registry,
     format_entity_registry_for_prompt,
     register_draft_entity,
-    get_category_template
+    get_category_template,
+    get_evolution_rules
 )
 
 # ==========================================
@@ -58,6 +59,8 @@ class OutlineState(TypedDict):
     status_message: str    # 执行进度描述
     mode: str             # 模式: 'book' 或 'chapter'
     grounding_sources: List[dict] # 绑定的源素材索引
+    scratchpad: list[str]  # Autoresearch 草稿本
+    defense_log: str       # 结构化防御日志
 
 # ==========================================
 # Nodes Implementation
@@ -140,6 +143,9 @@ def outline_planner(state: OutlineState):
 2. 当你引用或利用源素材中的设定、历史或规则时，必须在对应的描述末尾标注来源索引编号，例如：[S1], [S3]。
 3. 如果某些内容是你的文学虚构（非世界观事实），则无需标注索引，但必须确保不违背 [S] 系列中的任何禁令。
 
+【系统跨次元进化记忆 (血的教训) - 必须绝对遵循】
+{get_evolution_rules()}
+
 {feedback_section}
 {target_chapter_info}
 {book_context}
@@ -161,13 +167,77 @@ Schema: {schema}
     res = get_llm(json_mode=True).invoke(prompt)
     curr_iterations = state.get('iterations', 0)
     
+    # 记录推演轨迹到 scratchpad
+    sp = state.get('scratchpad')
+    if sp is None:
+        sp = []
+    elif not isinstance(sp, list):
+        sp = list(sp)
+    sp.append(f"Iteration {curr_iterations}: Generated outline proposal for mode {is_chapter_detail}")
+    
     return {
         "proposal": res.content,
         "grounding_sources": sources,
+        "scratchpad": sp,
         "iterations": int(curr_iterations) + 1,
         "mode": "chapter" if is_chapter_detail else "book",
-        "status_message": f"模式: {'章节细化' if is_chapter_detail else '全局策划'}。已引用 {len(sources)} 条素材进行锚定。"
+        "status_message": f"模式: {'章节细化' if is_chapter_detail else '全局策划'}。正在进入结构化防御审查。"
     }
+
+import pydantic
+from typing import Dict, Any
+
+class OutlineBookDefenseSchema(pydantic.BaseModel):
+    """用于全局书籍策划大纲的防御契约"""
+    meta_info: Dict[str, Any] = pydantic.Field(..., description="元信息必须存在")
+    plot_beats: Dict[str, Any] = pydantic.Field(..., description="书籍核心剧情拍必须存在")
+    chapter_list: list = pydantic.Field(..., description="必须包含章节列表")
+    class Config:
+        extra = 'allow'
+
+class OutlineChapterDefenseSchema(pydantic.BaseModel):
+    """用于单章节细化大纲的防御契约"""
+    chapter_info: Dict[str, Any] = pydantic.Field(..., description="单章信息必须存在")
+    plot_beats: list = pydantic.Field(..., description="单章的动作分解必须为数组")
+    worldview_alignment: str = pydantic.Field(..., description="必须声明世界观对齐逻辑")
+    class Config:
+        extra = 'allow'
+
+def outline_defense_node(state: OutlineState):
+    """大纲防线节点 (Cookbook Structured Defense Validator)"""
+    print(f"\n[DEBUG] outline_defense_node entry. State keys: {list(state.keys())}")
+    proposal = state.get('proposal', '')
+    mode = state.get('mode', 'book')
+    
+    try:
+        parsed_data = parse_json_safely(proposal)
+        if not parsed_data or not isinstance(parsed_data, dict):
+            raise ValueError("Outline proposal is not a valid JSON dictionary.")
+            
+        if mode == 'book':
+            validated = OutlineBookDefenseSchema(**parsed_data)
+        else:
+            validated = OutlineChapterDefenseSchema(**parsed_data)
+            
+        return {
+            "defense_log": "通过了大纲节点的 Cookbook 结构化验证。",
+            "status_message": "大纲格式合法，等待逻辑与素材考据双重审查..."
+        }
+    except Exception as e:
+        error_msg = f"大纲防御层拦截了结构破碎或幻觉数据: {str(e)}"
+        print(f"[DEFENSE BLOCK OUTLINE] {error_msg}")
+        
+        # 触发自我进化学习
+        try:
+            from evolution_sentinel_node import trigger_evolution_learning
+            trigger_evolution_learning(proposal, str(e), "Outline Agent Defense")
+        except Exception as ex:
+            print(f"[EVOLUTION] Sentinel trigger failed: {ex}")
+            
+        return {
+            "defense_log": error_msg,
+            "status_message": "格式失效，遭防御节点拦截，强制回退重采..."
+        }
 
 def outline_critic(state: OutlineState):
     """大纲审计节点"""
@@ -417,6 +487,7 @@ TASK: 请输出该实体的完整 JSON 设定，必须匹配模板字段。
 # ==========================================
 workflow = StateGraph(OutlineState)
 workflow.add_node("planner", outline_planner)
+workflow.add_node("defense", outline_defense_node)
 workflow.add_node("critic", outline_critic)
 workflow.add_node("grounding_audit", grounding_audit_node) # 新增锚定审计
 workflow.add_node("entity_sentinel", entity_sentinel_node)
@@ -424,7 +495,17 @@ workflow.add_node("human", human_gate)
 workflow.add_node("saver", outline_saver)
 
 workflow.add_edge(START, "planner")
-workflow.add_edge("planner", "critic")
+workflow.add_edge("planner", "defense")
+
+def route_after_defense(state: OutlineState):
+    log = str(state.get("defense_log") or "")
+    if "拦截" in log or "失效" in log:
+        if int(state.get("iterations") or 0) >= 3:
+            return "human"
+        return "planner"
+    return "critic"
+
+workflow.add_conditional_edges("defense", route_after_defense, {"human": "human", "planner": "planner", "critic": "critic"})
 workflow.add_edge("critic", "grounding_audit") # 逻辑审计后接着素材映射审计
 
 def route_after_audit(state: OutlineState):

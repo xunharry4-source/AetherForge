@@ -27,7 +27,8 @@ from lore_utils import (
     get_unified_context,
     get_category_template,
     upsert_category_template,
-    parse_json_safely
+    parse_json_safely,
+    get_evolution_rules
 )
 
 # ==========================================
@@ -57,10 +58,12 @@ class AgentState(TypedDict):
     user_feedback: str
     iterations: int        # 总生成次数
     audit_count: int       # 当前自审重试次数
-    is_approved: bool      # 用户是否批准
     category: str 
     doc_id: str
-    status_message: str    # 当前执行进度描述
+    scratchpad: list[str]  # Autoresearch 草稿本，用于内部推演
+    defense_log: str       # 防御节点产生的错误信息
+    research_confidence: float # 当前设定的内部自信度 (0.0 - 1.0)
+    extracted_facts: str   # 研究所得的关键推演事实
 
 # ==========================================
 # 0-4 Architecture & Category Specific Logic
@@ -125,10 +128,77 @@ CATEGORY_LOGIC_TEMPLATES = {
 # Nodes Implementation
 # ==========================================
 
+import pydantic
+from typing import Optional
+
+class ResearchReflectionSchema(pydantic.BaseModel):
+    confidence_score: float = pydantic.Field(description="对当前信息掌握程度的自信度 (0.0 到 1.0)")
+    reflection_notes: str = pydantic.Field(description="本轮反思的思考过程与后续还需要推演的疑问点")
+    extracted_facts: str = pydantic.Field(description="截至目前推演出的所有确定性关键事实结论")
+
+def autoresearch_node(state: AgentState):
+    """
+    自主研究循环节点 (Autoresearch Core)。
+    职责：
+    1. 不直接生成设定，而是进行深度推演和假设。
+    2. 判断当前背景信息是否足以构建一个无懈可击的 PGA 设定。
+    3. 将推演轨迹写入 scratchpad，将确定的事实写入 extracted_facts。
+    """
+    print(f"\n[DEBUG] autoresearch_node entry. State keys: {list(state.keys())}")
+    query = state.get('query', '')
+    rag_context = get_unified_context(query)
+    prohibited_items = get_prohibited_rules()
+    
+    current_scratchpad = state.get('scratchpad', [])
+    past_reflections = "\n".join(current_scratchpad) if current_scratchpad else "这是第一次推演。"
+    
+    prompt = f"""你是一个运行在后台的“隐形研究引擎 (Autoresearch)”。
+你的任务是根据用户需求，在脑内进行多轮推理、反思和纠错，而不是立刻给出最终答案。
+请遵循 PGA 世界观的【底层原则】：热力学第二定律和能量守恒。
+
+【用户需求】：{query}
+【现有文献知识库】：{rag_context}
+【绝对禁令】：{prohibited_items}
+
+【系统跨次元进化记忆 (极为重要)】：
+此记忆包含了你甚至其他 Agent 过去犯下的致命错误与总结出的防腐规则。你必须绝对遵守，不要重蹈覆辙！
+{get_evolution_rules()}
+
+【过去的思考轨迹 (Scratchpad)】：
+{past_reflections}
+
+TASK:
+基于过去的思考轨迹和现有文献，请进一步推演这个设定的合理性。
+如果还有逻辑漏洞（例如：能量来源不明，违反禁令），请在 reflection_notes 中指出，并给出一个较低的 confidence_score（如 0.4）。
+如果逻辑已经完美闭环，请总结所有确定的硬核设定放入 extracted_facts，赋予 confidence_score > 0.9。
+
+必须输出为 JSON，匹配以下 Schema：
+{{"confidence_score": float, "reflection_notes": "...", "extracted_facts": "..."}}
+"""
+    res = get_llm(json_mode=True).invoke(prompt)
+    try:
+        data = parse_json_safely(res.content)
+        validated = ResearchReflectionSchema(**data)
+        
+        new_scratchpad = current_scratchpad + [f"推演结论 (Confidence: {validated.confidence_score}): {validated.reflection_notes}"]
+        
+        return {
+            "research_confidence": validated.confidence_score,
+            "extracted_facts": validated.extracted_facts,
+            "scratchpad": new_scratchpad[-5:], # 仅保留最近5轮思考避免上下文爆炸
+            "status_message": f"Autoresearch 正在推演逻辑边界... 当前置信度: {validated.confidence_score}"
+        }
+    except Exception as e:
+        print(f"[Autoresearch] 解析失败: {e}")
+        return {
+            "research_confidence": 0.5,
+            "scratchpad": current_scratchpad + ["推演遇到格式异常，进行快速妥协。"],
+            "status_message": "Autoresearch 遭遇解析乱流，强制推进。"
+        }
+
 def generator_node(state: AgentState):
     """
     生成节点 (Proposal Generator)。
-    
     责任:
     1. 分类识别: 根据用户 query 自动判定所属世界观维度 (race, faction, etc.)。
     2. 上下文组装: 调用 RAG 检索文献库 (MongoDB) 和向量库 (ChromaDB) 中的相关冲突/背景。
@@ -214,6 +284,9 @@ def generator_node(state: AgentState):
 【最高禁令 - 必须绝对遵循】
 {prohibited_items}
 
+【系统跨次元进化记忆 (血的教训) - 必须绝对遵循】
+{get_evolution_rules()}
+
 【官方核心规则】
 {worldview_rules}
 1. 热力学第二定律：熵增不可逆，能量转换必有损耗。
@@ -242,12 +315,71 @@ TASK: 请完成设定提案。必须输出为 JSON 格式。
     _iter_val = state.get('iterations', 0)
     curr_iterations = int(_iter_val) if isinstance(_iter_val, (int, str)) else 0
     
+    # 将当前的思考过程推入草稿本
+    current_scratchpad = state.get('scratchpad', [])
+    current_scratchpad.append(f"Iteration {curr_iterations}: Generated proposal for {category}")
+    
     return {
         "proposal": res.content, 
         "category": category,
         "iterations": curr_iterations + 1, 
-        "status_message": f"[{category_info['title']}] 提议已生成并进入逻辑审查..."
+        "scratchpad": current_scratchpad,
+        "status_message": f"[{category_info['title']}] 提议已生成并进入结构化防御层 (Defense)..."
     }
+
+
+import pydantic
+from typing import Optional
+
+class WorldviewDefenseSchema(pydantic.BaseModel):
+    """用于 Cookbook 结构化防御的底层契约"""
+    name: Optional[str] = pydantic.Field(default=None, description="实体的核心名称")
+    content: str = pydantic.Field(..., description="设定的详细文本描述")
+    
+    class Config:
+        extra = 'allow'  # 允许由动态模板引入的额外字段
+
+def defense_node(state: AgentState):
+    """
+    防线节点 (Cookbook Structured Defense Validator)。
+    将由 generator 产出的非结构化或格式损坏的 JSON 进行强制拦截。
+    如果遭遇 Pydantic 解析失败，或者检测到明显的幻觉格式，立刻抛弃并回炉。
+    """
+    print(f"\n[DEBUG] defense_node entry. State keys: {list(state.keys())}")
+    proposal = state.get('proposal', '')
+    
+    try:
+        # 第一层防护：JSON 解析抗干扰
+        parsed_data = parse_json_safely(proposal)
+        if not parsed_data:
+            raise ValueError("Proposal is not valid JSON.")
+            
+        # 第二层防护：Pydantic 强制模式校验
+        if isinstance(parsed_data, dict):
+            validated_model = WorldviewDefenseSchema(**parsed_data)
+        else:
+            raise ValueError("Proposal JSON is not an object/dictionary.")
+            
+        # 此时数据合法，允许通过防爆门
+        return {
+            "defense_log": "通过了 Cookbook 结构化防御检查。",
+            "status_message": "格式合法，进入逻辑审查阶段 (Reviewer)..."
+        }
+    except Exception as e:
+        error_msg = f"防御层拦截了污染数据: {str(e)}"
+        print(f"[DEFENSE BLOCK] {error_msg}")
+        
+        # 触发自我进化学习
+        try:
+            from evolution_sentinel_node import trigger_evolution_learning
+            trigger_evolution_learning(proposal, str(e), "Worldview Agent Defense")
+        except Exception as ex:
+            print(f"[EVOLUTION] Sentinel trigger failed: {ex}")
+            
+        return {
+            "defense_log": error_msg,
+            "status_message": "生成格式失效，被防御门拦截，强制重试..."
+        }
 
 
 def reviewer_node(state: AgentState):
@@ -363,13 +495,35 @@ def saver_node(state: AgentState):
 # Graph Definition
 # ==========================================
 workflow = StateGraph(AgentState)
+workflow.add_node("autoresearch", autoresearch_node)
 workflow.add_node("generator", generator_node)
+workflow.add_node("defense", defense_node)
 workflow.add_node("reviewer", reviewer_node)
 workflow.add_node("human", human_node)
 workflow.add_node("saver", saver_node)
 
-workflow.add_edge(START, "generator")
-workflow.add_edge("generator", "reviewer")
+# START 接入 Autoresearch
+workflow.add_edge(START, "autoresearch")
+
+def route_after_research(state: AgentState):
+    conf = float(state.get("research_confidence", 0.0))
+    iters = len(state.get("scratchpad", []))
+    if conf > 0.85 or iters >= 4:
+        return "generator"
+    return "autoresearch"
+
+workflow.add_conditional_edges("autoresearch", route_after_research, {"generator": "generator", "autoresearch": "autoresearch"})
+workflow.add_edge("generator", "defense")
+
+def route_after_defense(state: AgentState):
+    log = str(state.get("defense_log") or "")
+    if "拦截" in log or "失效" in log:
+        if int(state.get("iterations") or 0) >= 3:
+            return "human" # 多次失败后降级交给人类
+        return "generator"
+    return "reviewer"
+
+workflow.add_conditional_edges("defense", route_after_defense, {"human": "human", "generator": "generator", "reviewer": "reviewer"})
 
 def route_after_review(state: AgentState):
     if state.get("is_approved") or int(state.get("audit_count", 0)) >= 3: return "human"

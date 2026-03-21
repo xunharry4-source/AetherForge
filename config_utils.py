@@ -1,21 +1,29 @@
 import os
 import json
+import logging
+from dotenv import load_dotenv
+from logger_utils import get_logger
+
+logger = get_logger("novel_agent.config")
 
 def load_config():
     """Centralized configuration loader for the Novel Agent system."""
+    # Explicitly load .env file if it exists, enhancing security and secret management
+    load_dotenv()
+    
     config = {}
     config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.json')
-    print(f"[CONFIG DEBUG] Checking config at: {config_path}")
+    logger.info(f"Checking config at: {config_path}")
     
     if os.path.exists(config_path):
         try:
             with open(config_path, 'r', encoding='utf-8') as f:
                 config = json.load(f)
-            print(f"[CONFIG DEBUG] Loaded keys from JSON: {list(config.keys())}")
+            logger.info(f"Loaded keys from JSON: {list(config.keys())}")
         except Exception as e:
-            print(f"[CONFIG ERROR] Failed to load config.json: {e}")
+            logger.error(f"Failed to load config.json: {e}")
     else:
-        print(f"[CONFIG DEBUG] config.json NOT FOUND at {config_path}")
+        logger.info(f"config.json NOT FOUND at {config_path}")
     
     # Priority: config.json > Environment Variables
     google_keys = config.get("GOOGLE_API_KEYS", [])
@@ -26,13 +34,13 @@ def load_config():
 
     if not google_key and google_keys:
         google_key = google_keys[0]
-        print(f"[CONFIG DEBUG] No GOOGLE_API_KEY found in config or env. Using first key from GOOGLE_API_KEYS.")
+        logger.info(f"No GOOGLE_API_KEY found in config or env. Using first key from GOOGLE_API_KEYS.")
     
     if not google_keys and google_key:
         google_keys = [google_key]
 
     if not google_key:
-        print("[CONFIG WARNING] GOOGLE_API_KEY is empty or None!")
+        logger.warning("GOOGLE_API_KEY is empty or None!")
 
     return {
         "GOOGLE_API_KEY": google_key,

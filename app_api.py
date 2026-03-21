@@ -12,22 +12,29 @@ from flask import Flask, request, jsonify, render_template, send_from_directory,
 import os
 import json
 import traceback
+from typing import Any
+from flask_cors import CORS
+from logger_utils import get_logger
+
+logger = get_logger("novel_agent.api")
 # 尝试导入观测与监控插件 (Graceful Observability Imports)
 HAS_SENTRY = False
 try:
     import sentry_sdk
     from sentry_sdk.integrations.flask import FlaskIntegration
     HAS_SENTRY = True
+    logger.info("sentry-sdk initialized successfully.")
 except ImportError:
-    print("[WARN] sentry-sdk not installed, error tracking disabled.")
+    logger.warning("sentry-sdk not installed, error tracking disabled.")
 
 HAS_PROMETHEUS = False
 try:
     from prometheus_flask_exporter import PrometheusMetrics
     import prometheus_client
     HAS_PROMETHEUS = True
+    logger.info("prometheus-flask-exporter initialized.")
 except ImportError:
-    print("[WARN] prometheus-flask-exporter not installed, metrics disabled.")
+    logger.warning("prometheus-flask-exporter not installed, metrics disabled.")
 
 # Import shared utilities
 from lore_utils import (
@@ -58,6 +65,7 @@ CONFIG = get_config()
 # --- Initialize Observability Stack ---
 
 app = Flask(__name__)
+CORS(app)  # Enable CORS for all routes securely
 
 # 初始化 Sentry
 if HAS_SENTRY and CONFIG.get("SENTRY_DSN"):
@@ -276,7 +284,9 @@ def get_lore():
     except Exception as e:
         print(f"[API ERROR] Global get_lore error: {e}")
 
-    return jsonify(all_docs[::-1])
+    # To satisfy type checkers, reverse using standard techniques
+    all_docs.reverse()
+    return jsonify(all_docs)
 
 @app.route('/api/archive/update', methods=['POST'])
 def update_archive():
@@ -298,7 +308,7 @@ def update_archive():
         'worldview': 'worldview_db.json',
         'outline': 'outlines_db.json',
         'prose': 'prose_db.json'
-    }.get(item_type)
+    }.get(str(item_type))
     
     if not filename or not os.path.exists(filename):
         return jsonify({"error": f"Invalid type or file not found: {item_type}"}), 400
@@ -314,15 +324,30 @@ def update_archive():
             
             for item in items:
                 if str(item.get('id')) == str(item_id):
+                    import datetime as _dt
+                    old_content = item.get('proposal', '')
                     # Update proposal or whole outline structure if needed
                     # If content starts with {, assume it's the full outline JSON
                     if new_content.strip().startswith('{'):
                         try:
+                            # if it's outline dict, fallback to stringifying old outline
+                            old_content = json.dumps(item.get('outline', {}), ensure_ascii=False)
                             item['outline'] = json.loads(new_content)
                         except:
                             item['proposal'] = new_content
                     else:
                         item['proposal'] = new_content
+                        
+                    if old_content and old_content != new_content:
+                        history = item.get('history', [])
+                        history.append({
+                            "timestamp": _dt.datetime.now().isoformat(),
+                            "content": old_content
+                        })
+                        if len(history) > 10:
+                            history = history[-10:]
+                        item['history'] = history
+                        
                     updated = True
                     break
             
@@ -348,6 +373,17 @@ def update_archive():
                             current_id = item.get('scene_id') or item.get('id')
                         
                         if str(current_id) == str(item_id):
+                            import datetime as _dt
+                            old_content = item.get('content', '')
+                            if old_content and old_content != new_content:
+                                history = item.get('history', [])
+                                history.append({
+                                    "timestamp": _dt.datetime.now().isoformat(),
+                                    "content": old_content
+                                })
+                                if len(history) > 10:
+                                    history = history[-10:]
+                                item['history'] = history
                             item['content'] = new_content
                             line = json.dumps(item, ensure_ascii=False) + '\n'
                             updated = True
@@ -386,7 +422,7 @@ def agent_query():
     if not agent_app:
             return jsonify({"error": f"Agent '{agent_type}' 未就绪"}), 500
             
-    config = {"configurable": {"thread_id": thread_id}}
+    config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
     
     # 1. 自动路由处理 (Router Logic)
     if agent_type == 'router':
