@@ -34,11 +34,14 @@
     <div class="max-w-7xl mx-auto space-y-8">
         <!-- Header -->
         <header class="flex flex-col md:flex-row md:items-center justify-between gap-4">
-            <div>
-                <h1 class="text-4xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
-                    PGA 万象世界观控制台
-                </h1>
-                <p class="text-slate-400 mt-2">万象星际协议体 - 核心设定管理系统</p>
+            <div class="flex items-center gap-4">
+                <img src="assets/Aether.jpg" alt="Aether Logo" class="w-16 h-16 rounded-2xl object-cover border border-cyan-500/30 shadow-lg shadow-cyan-500/20">
+                <div>
+                    <h1 class="text-4xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
+                        PGA 万象世界观控制台
+                    </h1>
+                    <p class="text-slate-400 mt-2 text-sm">万象星际协议体 - 核心设定管理系统</p>
+                </div>
             </div>
             <nav class="flex gap-4">
                 <button onclick="switchTab('archive')" class="tab-btn active px-4 py-2 rounded-xl text-sm font-medium transition-all">文献档案库</button>
@@ -78,6 +81,14 @@
                         <button id="search-btn" class="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-semibold py-3 rounded-2xl transition-all accent-glow">
                             立即搜索
                         </button>
+                    </div>
+                    
+                    <!-- Import Section -->
+                            <div class="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
+                                <div id="import-progress-bar" class="h-full bg-purple-500 w-0 transition-all duration-500"></div>
+                            </div>
+                            <p id="import-status-text" class="text-[10px] text-slate-500">正在解析文档...</p>
+                        </div>
                     </div>
 
                     <div class="glass p-6 rounded-3xl space-y-4 overflow-hidden">
@@ -781,7 +792,146 @@
                 renderDrafts(drafts);
                 updateDraftBadge(drafts.length);
             } catch (err) {
-                console.error("Fetch drafts error:", err);
+                console.error("Failed to fetch lore stats:", err);
+            }
+        }
+
+        // --- Optimized Import Logic ---
+        let currentExtractedEntities = [];
+
+        async function handleFileUpload(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            const strategy = document.querySelector('input[name="strategy"]:checked').value;
+            const progressContainer = document.getElementById('import-progress-container');
+            const progressBar = document.getElementById('import-progress-bar');
+            const statusText = document.getElementById('import-status-text');
+            const progressPercent = document.getElementById('import-progress-percent');
+
+            progressContainer.classList.remove('hidden');
+            updateProgress(20, '正在上传文件...');
+
+            const formData = new FormData();
+            formData.append('file', file);
+
+            try {
+                // 1. Upload
+                const uploadRes = await fetch('/api/import/upload', { method: 'POST', body: formData });
+                const uploadData = await uploadRes.json();
+                if (!uploadRes.ok) throw new Error(uploadData.error || '上传失败');
+
+                updateProgress(40, `上传成功，正在以 [${strategy}] 模式解析...`);
+
+                // 2. Process (Analysis Phase)
+                const processRes = await fetch('/api/import/process', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ filename: uploadData.filename, strategy: strategy })
+                });
+                const processData = await processRes.json();
+                if (!processRes.ok) throw new Error(processData.error || '解析失败');
+
+                updateProgress(100, '解析完成，请审查结果');
+                currentExtractedEntities = processData.entities;
+                showPreview(currentExtractedEntities);
+                
+                // Reset file input for next time
+                event.target.value = '';
+                
+            } catch (err) {
+                updateProgress(100, `错误: ${err.message}`, 'bg-red-500');
+            }
+        }
+
+        function updateProgress(percent, text, colorClass = 'bg-blue-500') {
+            const progressBar = document.getElementById('import-progress-bar');
+            const statusText = document.getElementById('import-status-text');
+            const progressPercent = document.getElementById('import-progress-percent');
+            
+            progressBar.style.width = `${percent}%`;
+            progressBar.className = `${colorClass} h-2 rounded-full transition-all duration-300`;
+            statusText.innerText = text;
+            progressPercent.innerText = `${percent}%`;
+        }
+
+        function showPreview(entities) {
+            const modal = document.getElementById('preview-modal');
+            const tbody = document.getElementById('preview-table-body');
+            
+            tbody.innerHTML = entities.map((e, idx) => `
+                <tr class="border-b border-gray-700/50 hover:bg-gray-700/30 transition-all">
+                    <td class="p-3">
+                        <input type="checkbox" checked class="entity-checkbox rounded border-gray-600 bg-gray-700 text-blue-500" data-index="${idx}">
+                    </td>
+                    <td class="p-3">
+                        <input type="text" value="${e.name}" class="entity-name bg-gray-900 border border-gray-700 rounded px-2 py-1 w-full text-blue-300" data-index="${idx}">
+                    </td>
+                    <td class="p-3">
+                        <select class="entity-category bg-gray-900 border border-gray-700 rounded px-2 py-1 w-full text-gray-300" data-index="${idx}">
+                            <option value="Races" ${e.category === 'Races' ? 'selected' : ''}>Races (种族)</option>
+                            <option value="Geographies" ${e.category === 'Geographies' ? 'selected' : ''}>Geographies (地理)</option>
+                            <option value="Factions" ${e.category === 'Factions' ? 'selected' : ''}>Factions (势力)</option>
+                            <option value="Mechanisms" ${e.category === 'Mechanisms' ? 'selected' : ''}>Mechanisms (机制)</option>
+                            <option value="History" ${e.category === 'History' ? 'selected' : ''}>History (历史)</option>
+                        </select>
+                    </td>
+                    <td class="p-3">
+                        <div class="text-xs text-gray-500 max-w-md truncate" title="${e.content.substring(0, 500)}">
+                            ${e.content.substring(0, 100)}...
+                        </div>
+                    </td>
+                </tr>
+            `).join('');
+            
+            modal.classList.remove('hidden');
+        }
+
+        function closePreview() {
+            document.getElementById('preview-modal').classList.add('hidden');
+        }
+
+        async function confirmImportSync() {
+            const btn = document.getElementById('confirm-sync-btn');
+            const checkboxes = document.querySelectorAll('.entity-checkbox:checked');
+            const confirmedEntities = Array.from(checkboxes).map(cb => {
+                const idx = cb.getAttribute('data-index');
+                return {
+                    name: document.querySelector(`.entity-name[data-index="${idx}"]`).value,
+                    category: document.querySelector(`.entity-category[data-index="${idx}"]`).value,
+                    content: currentExtractedEntities[idx].content
+                };
+            });
+
+            if (confirmedEntities.length === 0) {
+                alert('请至少选择一个实体进行同步');
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerText = '正在同步中...';
+
+            try {
+                const res = await fetch('/api/import/confirm', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ entities: confirmedEntities })
+                });
+                const data = await res.json();
+                
+                if (data.status === 'completed') {
+                    alert(`同步成功！共写入 ${data.success_count} 条设定。`);
+                    closePreview();
+                    fetchLore(); // 刷新资产库
+                    document.getElementById('import-progress-container').classList.add('hidden');
+                } else {
+                    throw new Error(data.error || '同步失败');
+                }
+            } catch (err) {
+                alert(`同步错误: ${err.message}`);
+            } finally {
+                btn.disabled = false;
+                btn.innerText = '确认并同步到库 (Confirm & Sync)';
             }
         }
 

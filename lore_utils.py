@@ -21,7 +21,26 @@ from chromadb.config import Settings
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_chroma import Chroma
 from config_utils import load_config
-from langfuse.callback import CallbackHandler
+try:
+    from langfuse.callback import CallbackHandler
+    HAS_LANGFUSE = True
+except ImportError:
+    HAS_LANGFUSE = False
+    print("[WARN] langfuse-python not installed, LLM tracing disabled.")
+
+HAS_DOCX = False
+try:
+    import docx
+    HAS_DOCX = True
+except ImportError:
+    pass
+
+HAS_PDF = False
+try:
+    import PyPDF2
+    HAS_PDF = True
+except ImportError:
+    pass
 
 # ==========================================
 # API Key Manager (Global Singleton for the module)
@@ -59,7 +78,7 @@ def get_langfuse_callback():
     sk = config.get("LANGFUSE_SECRET_KEY")
     host = config.get("LANGFUSE_HOST")
     
-    if pk and sk:
+    if HAS_LANGFUSE and pk and sk:
         return CallbackHandler(
             public_key=pk, 
             secret_key=sk, 
@@ -84,7 +103,191 @@ def report_token_usage(model: str, prompt_tokens: int, completion_tokens: int, a
     if _token_counter:
         _token_counter.labels(model=model, token_type='prompt', agent=agent_name).inc(prompt_tokens)
         _token_counter.labels(model=model, token_type='completion', agent=agent_name).inc(completion_tokens)
-        print(f"[METRICS] Reported {prompt_tokens+completion_tokens} tokens for {agent_name} ({model})")
+
+
+# --- Lore Extraction & Sync ---
+
+def clean_text(text: str) -> str:
+    """清理文本：规范化换行，移除冗余空格和噪声数据"""
+    if not text:
+        return ""
+    
+    import re
+    # 1. 规范化换行符
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    
+    # 2. 移除连续的空行 (保留最多两个)
+    text = re.sub(r'\n{3,}', '\n\n', text)
+    
+    # 3. 移除行尾空格
+    text = re.sub(r'[ \t]+\n', '\n', text)
+    
+    # 4. 移除 PDF/Word 中常见的页码噪声 (简单模式)
+    text = re.sub(r'\n\s*\d+\s*\n', '\n', text)
+    
+    return text.strip()
+
+def extract_text_from_file(file_path: str) -> str:
+    """从不同格式文件中提取文本"""
+    ext = os.path.splitext(file_path)[1].lower()
+    text = ""
+    
+    if ext == ".md" or ext == ".txt":
+        with open(file_path, 'r', encoding='utf-8') as f:
+            text = f.read()
+    elif ext == ".json":
+        with open(file_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+            text = json.dumps(data, ensure_ascii=False, indent=2)
+    elif ext == ".opml":
+        with open(file_path, 'r', encoding='utf-8') as f:
+            text = f.read() # 简化处理，暂时直接读原始文本
+    elif ext == ".docx":
+        if not HAS_DOCX:
+            raise RuntimeError("Missing docx dependency: pip install python-docx")
+        doc = docx.Document(file_path)
+        text = "\n".join([p.text for p in doc.paragraphs])
+    elif ext == ".pdf":
+        if not HAS_PDF:
+            raise RuntimeError("PyPDF2 is not installed. Please install it to support .pdf files.")
+        text = ""
+        with open(file_path, 'rb') as f:
+            reader = PyPDF2.PdfReader(f)
+            for page in reader.pages:
+                text += page.extract_text() + "\n"
+    else:
+        # 尝试作为纯文本读取
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                text = f.read()
+        except:
+            raise ValueError(f"Unsupported file format: {ext}")
+            
+    if not text:
+        return ""
+        
+    return clean_text(text)
+
+def get_lore_by_doc_id(doc_id: str) -> Optional[Dict[str, Any]]:
+    """通过 doc_id 快速获取完整实体"""
+    # 优先尝试 MongoDB
+    try:
+        mongo_client = pymongo.MongoClient("mongodb://localhost:27017/", serverSelectionTimeoutMS=1000)
+        coll = mongo_client["pga_worldview"]["lore"]
+        doc = coll.find_one({"doc_id": doc_id})
+        if doc: 
+            if "_id" in doc: del doc["_id"]
+            return doc
+    except Exception:
+        pass
+        
+    # 后备尝试本地 JSON (JSONL 格式)
+    try:
+        db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "worldview_db.json")
+        if not os.path.exists(db_path):
+            db_path = "worldview_db.json"
+            
+        if os.path.exists(db_path):
+            with open(db_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if not line.strip(): continue
+                    try:
+                        data = json.loads(line)
+                        if data.get("doc_id") == doc_id:
+                            return data
+                    except Exception:
+                        continue
+    except Exception:
+        pass
+    return None
+
+def sync_lore_to_db(entity: Dict[str, Any]):
+    """
+    同步设定实体：
+    1. 写入主库 (MongoDB/JSON) 存储完整父节点。
+    2. 生成精细化子片段 (Children) 同步至 ChromaDB 进行索引。
+    """
+    # 1. 准备元数据
+    if 'doc_id' not in entity:
+        import uuid
+        entity['doc_id'] = str(uuid.uuid4())
+    if 'timestamp' not in entity:
+        import datetime
+        entity['timestamp'] = datetime.datetime.now().isoformat()
+        
+    # 2. 写入主库 (存储完整 Parent)
+    try:
+        mongo_client = pymongo.MongoClient("mongodb://localhost:27017/", serverSelectionTimeoutMS=2000)
+        db = mongo_client["pga_worldview"]
+        coll = db["lore"]
+        coll.update_one({"doc_id": entity["doc_id"]}, {"$set": entity}, upsert=True)
+    except Exception:
+        # Fallback to worldview_db.json
+        with open("worldview_db.json", "a", encoding="utf-8") as f:
+            f.write(json.dumps(entity, ensure_ascii=False) + "\n")
+
+    # 3. 同步至 ChromaDB (父子结构)
+    try:
+        config = load_config()
+        key = config.get("GOOGLE_API_KEY") or (config.get("GOOGLE_API_KEYS")[0] if config.get("GOOGLE_API_KEYS") else None)
+            
+        embeddings = GoogleGenerativeAIEmbeddings(
+            model="models/gemini-embedding-001", 
+            google_api_key=key,
+            task_type="retrieval_document"
+        )
+        client = chromadb.PersistentClient(path="./chroma_db")
+        vector_store = Chroma(
+            client=client, 
+            collection_name="pga_worldview_v1", 
+            embedding_function=embeddings
+        )
+        
+        # --- 实现父子切片逻辑 ---
+        texts_to_index = []
+        metadatas = []
+        ids = []
+        
+        content = entity["content"]
+        
+        # A. 首先存储 Parent 节点本身 (用于兜底匹配)
+        texts_to_index.append(content)
+        metadatas.append({
+            "name": entity["name"],
+            "category": entity["category"],
+            "doc_id": entity["doc_id"],
+            "doc_type": "parent"
+        })
+        ids.append(entity["doc_id"])
+        
+        # B. 如果内容较长，生成子片段 (Children) 以提升检索精度
+        if len(content) > 500:
+            chunk_size = 200
+            overlap = 50
+            for i in range(0, len(content), chunk_size - overlap):
+                chunk = content[i:i + chunk_size]
+                if len(chunk) < 50: continue # 太短的片段略过
+                
+                texts_to_index.append(chunk)
+                metadatas.append({
+                    "name": entity["name"],
+                    "parent_id": entity["doc_id"],
+                    "category": entity["category"],
+                    "doc_type": "child",
+                    "chunk_index": i
+                })
+                ids.append(f"{entity['doc_id']}_chunk_{i}")
+        
+        # 执行批量写入
+        vector_store.add_texts(
+            texts=texts_to_index,
+            metadatas=metadatas,
+            ids=ids
+        )
+        print(f"[SYNC] Lore '{entity['name']}' synced with {len(texts_to_index)} indices (Parent-Child).")
+        
+    except Exception as e:
+        print(f"[SYNC ERROR] ChromaDB sync failed for {entity['name']}: {e}")
 
 def get_llm(json_mode=False):
     key = _key_manager.get_key()
@@ -150,7 +353,10 @@ def get_vector_store():
         task_type="retrieval_query"
     )
     client = chromadb.PersistentClient(path="./chroma_db")
-    return Chroma(client=client, collection_name="pga_lore", embedding_function=emb)
+    return Chroma(client=client, collection_name="pga_worldview_v1", embedding_function=emb)
+
+def get_lore_collection_name():
+    return "pga_worldview_v1"
 
 def rotate_api_key():
     """暴露给外部的旋转接口"""

@@ -12,10 +12,22 @@ from flask import Flask, request, jsonify, render_template, send_from_directory,
 import os
 import json
 import traceback
-import sentry_sdk
-from sentry_sdk.integrations.flask import FlaskIntegration
-from prometheus_flask_exporter import PrometheusMetrics
-from prometheus_client import Counter
+# 尝试导入观测与监控插件 (Graceful Observability Imports)
+HAS_SENTRY = False
+try:
+    import sentry_sdk
+    from sentry_sdk.integrations.flask import FlaskIntegration
+    HAS_SENTRY = True
+except ImportError:
+    print("[WARN] sentry-sdk not installed, error tracking disabled.")
+
+HAS_PROMETHEUS = False
+try:
+    from prometheus_flask_exporter import PrometheusMetrics
+    import prometheus_client
+    HAS_PROMETHEUS = True
+except ImportError:
+    print("[WARN] prometheus-flask-exporter not installed, metrics disabled.")
 
 # Import shared utilities
 from lore_utils import (
@@ -37,6 +49,7 @@ from worldview_agent_langgraph import app as worldview_app
 from novel_outline_agent_langgraph import app as outline_app
 from writing_execution_agent_langgraph import app as writing_app
 from router_agent_langgraph import app as router_app
+from worldview_import_agent import app as import_app
 from config_utils import get_config
 
 # Load configuration for observability
@@ -44,28 +57,37 @@ CONFIG = get_config()
 
 # --- Initialize Observability Stack ---
 
-# 1. Sentry (Error Tracking)
-if CONFIG.get("SENTRY_DSN"):
+app = Flask(__name__)
+
+# 初始化 Sentry
+if HAS_SENTRY and CONFIG.get("SENTRY_DSN"):
     sentry_sdk.init(
         dsn=CONFIG["SENTRY_DSN"],
         integrations=[FlaskIntegration()],
         traces_sample_rate=1.0,
         profiles_sample_rate=1.0,
     )
-    print("[OBSERVABILITY] Sentry initialized.")
+    print("[INFO] Sentry initialized.")
 
-app = Flask(__name__)
+# 初始化 Prometheus 指标
+metrics = None
+if HAS_PROMETHEUS:
+    metrics = PrometheusMetrics(app)
+    metrics.info('app_info', 'Novel Agent API info', version='1.0.0')
 
-# 2. Prometheus (Metrics)
-metrics = PrometheusMetrics(app)
-metrics.info('app_info', 'Novel Agent API Info', version='1.0.0')
-
-# Custom metrics for Token Tracking
-TOKEN_USAGE_COUNTER = Counter(
-    'llm_token_usage_total', 
-    'Total LLM token usage', 
-    ['model', 'token_type', 'agent']
-)
+    # 定义自定义指标
+    TOKEN_USAGE_COUNTER = prometheus_client.Counter(
+        'llm_token_usage_total',
+        'Total LLM token usage',
+        ['model', 'token_type', 'agent_name']
+    )
+    print("[INFO] Prometheus metrics enabled.")
+else:
+    # 如果没有安装 prometheus，定义一个 Mock 计数器避免代码崩溃
+    class MockCounter:
+        def labels(self, *args, **kwargs): return self
+        def inc(self, amount=1): pass
+    TOKEN_USAGE_COUNTER = MockCounter()
 # token_type: prompt / completion
 
 
@@ -74,7 +96,8 @@ AGENTS = {
     "worldview": worldview_app,
     "outline": outline_app,
     "writing": writing_app,
-    "router": router_app
+    "router": router_app,
+    "import": import_app
 }
 
 @app.route('/favicon.ico')
@@ -188,6 +211,10 @@ def index():
     response.headers['Pragma'] = 'no-cache'
     response.headers['Expires'] = '0'
     return response
+
+@app.route('/assets/<path:filename>')
+def serve_assets(filename):
+    return send_from_directory('assets', filename)
 
 @app.route('/api/lore', methods=['GET'])
 def get_lore():
@@ -530,29 +557,58 @@ def search_lore(retry=True):
         return jsonify([])
 
     try:
-        # 使用统一的 get_vector_store 获取索引
+        from lore_utils import get_vector_store, get_lore_by_doc_id
         vector_store = get_vector_store()
         if not vector_store:
             return jsonify([])
         
-        docs = vector_store.similarity_search(query, k=5)
+        # 1. 初始向量检索 (检索子片段或父节点)
+        docs = vector_store.similarity_search(query, k=10)
+        print(f"[DEBUG SEARCH] Raw docs found: {len(docs)}")
+        
+        seen_doc_ids = set()
         formatted = []
-        for d in docs:
-            formatted.append({
-                "name": d.metadata.get('name', '搜索结果'),
-                "content": d.page_content,
-                "category": d.metadata.get('category', 'Search'),
-                "timestamp": "检索中"
-            })
-        print(f"[SEARCH SUCCESS] Query: '{query}', Results: {len(formatted)}")
+        
+        for i, d in enumerate(docs):
+            doc_type = d.metadata.get('doc_type', 'parent')
+            target_id = d.metadata.get('parent_id') if doc_type == 'child' else d.metadata.get('doc_id')
+            print(f"  Result {i}: Type={doc_type}, TargetID={target_id}, Content={d.page_content[:30]}...")
+            
+            if not target_id or target_id in seen_doc_ids:
+                continue
+                
+            # 3. 扩展回 Parent (获取完整设定内容)
+            parent_entity = get_lore_by_doc_id(target_id)
+            if parent_entity:
+                formatted.append({
+                    "name": parent_entity.get('name', '搜索结果'),
+                    "content": parent_entity.get('content', ''),
+                    "category": parent_entity.get('category', 'Search'),
+                    "timestamp": parent_entity.get('timestamp', 'Known'),
+                    "doc_id": target_id,
+                    "match_type": doc_type
+                })
+                seen_doc_ids.add(target_id)
+            else:
+                print(f"  WARNING: Could not find parent entity for ID: {target_id}")
+                
+            # 限制返回数量
+            if len(formatted) >= 5:
+                break
+                
+        print(f"[SEARCH SUCCESS] Query: '{query}', Parent Entities Found: {len(formatted)}")
         return jsonify(formatted)
+        
     except Exception as e:
         if ("429" in str(e) or "RESOURCE_EXHAUSTED" in str(e)) and retry:
+             from lore_utils import rotate_api_key
              if rotate_api_key():
                  print("[API] Rotated key and retrying Search...")
                  return search_lore(retry=False)
         print(f"[SEARCH ERROR]: {str(e)}")
-        return jsonify([]) # 始终返回列表，防止前端 crash
+        import traceback
+        traceback.print_exc()
+        return jsonify([]) 
 
 @app.route('/api/snapshots/<outline_id>', methods=['GET'])
 def get_snapshots(outline_id):
@@ -619,6 +675,55 @@ def reject_entity():
             f.write(json.dumps(d, ensure_ascii=False) + "\n")
     
     return jsonify({"status": "rejected", "name": data['name']})
+
+# --- Import Lore Endpoints ---
+
+# Define UPLOAD_FOLDER if not already defined
+import os
+UPLOAD_FOLDER = "uploads" # Assuming "uploads" is the folder used by import_upload
+
+@app.route('/api/import/upload', methods=['POST'])
+def import_upload():
+    """Handles file uploads for worldview ingestion."""
+    if 'file' not in request.files:
+        return jsonify({"error": "No file part"}), 400
+    
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({"error": "No selected file"}), 400
+    
+    # Save to uploads folder
+    upload_path = os.path.join("uploads", file.filename)
+    file.save(upload_path)
+    
+    return jsonify({
+        "status": "success", 
+        "file_path": upload_path,
+        "filename": file.filename
+    })
+
+@app.route('/api/import/process', methods=['POST'])
+def import_process():
+    """Triggers the Import Agent for a specific file."""
+    data = request.json
+    file_path = data.get("file_path")
+    
+    if not file_path or not os.path.exists(file_path):
+        return jsonify({"error": "Invalid file path"}), 400
+        
+    try:
+        # Stream the agent's execution
+        results = []
+        for output in import_app.stream({"file_path": file_path}):
+            results.append(output)
+            
+        return jsonify({
+            "status": "completed",
+            "results": results,
+            "file": file_path
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     # 启动 5005 端口
