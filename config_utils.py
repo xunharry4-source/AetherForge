@@ -49,7 +49,10 @@ def load_config():
         "SENTRY_DSN": config.get("SENTRY_DSN") or os.getenv("SENTRY_DSN"),
         "LANGFUSE_PUBLIC_KEY": config.get("LANGFUSE_PUBLIC_KEY") or os.getenv("LANGFUSE_PUBLIC_KEY"),
         "LANGFUSE_SECRET_KEY": config.get("LANGFUSE_SECRET_KEY") or os.getenv("LANGFUSE_SECRET_KEY"),
-        "LANGFUSE_HOST": config.get("LANGFUSE_HOST") or os.getenv("LANGFUSE_HOST") or "https://cloud.langfuse.com"
+        "LANGFUSE_HOST": config.get("LANGFUSE_HOST") or os.getenv("LANGFUSE_HOST") or "https://cloud.langfuse.com",
+        "MONGO_URI": config.get("MONGO_URI") or os.getenv("MONGO_URI") or "mongodb://localhost:27017/",
+        "MONGO_DB_NAME": config.get("MONGO_DB_NAME") or os.getenv("MONGO_DB_NAME") or "pga_worldview",
+        "CHROMA_COLLECTION_NAME": config.get("CHROMA_COLLECTION_NAME") or os.getenv("CHROMA_COLLECTION_NAME") or "pga_worldview_v1"
     }
 
 # No global CONFIG object here to force fresh loading if needed, 

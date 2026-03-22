@@ -21,6 +21,9 @@ from chromadb.config import Settings
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_chroma import Chroma
 from config_utils import load_config
+from logger_utils import get_logger
+
+logger = get_logger("novel_agent.lore")
 try:
     from langfuse.callback import CallbackHandler
     HAS_LANGFUSE = True
@@ -89,6 +92,7 @@ def get_langfuse_callback():
 # --- Prometheus Global Counter (Imported from app_api if needed) ---
 # We use a lazy reference to avoids circular imports
 _token_counter = None
+_request_counter = None
 
 def report_token_usage(model: str, prompt_tokens: int, completion_tokens: int, agent_name: str = "unknown"):
     """Reports token usage to Prometheus."""
@@ -103,6 +107,21 @@ def report_token_usage(model: str, prompt_tokens: int, completion_tokens: int, a
     if _token_counter:
         _token_counter.labels(model=model, token_type='prompt', agent=agent_name).inc(prompt_tokens)
         _token_counter.labels(model=model, token_type='completion', agent=agent_name).inc(completion_tokens)
+        
+    # Increment request counter too
+    global _request_counter
+    if _request_counter is None:
+        try:
+            from app_api import LLM_REQUEST_COUNTER
+            _request_counter = LLM_REQUEST_COUNTER
+        except ImportError:
+            pass
+            
+    if _request_counter:
+        try:
+            _request_counter.labels(model=model, agent=agent_name).inc(1)
+        except Exception:
+            pass
 
 
 # --- Lore Extraction & Sync ---
@@ -172,8 +191,11 @@ def get_lore_by_doc_id(doc_id: str) -> Optional[Dict[str, Any]]:
     """通过 doc_id 快速获取完整实体"""
     # 优先尝试 MongoDB
     try:
-        mongo_client = pymongo.MongoClient("mongodb://localhost:27017/", serverSelectionTimeoutMS=1000)
-        coll = mongo_client["pga_worldview"]["lore"]
+        config = load_config()
+        mongo_uri = config.get("MONGO_URI", "mongodb://localhost:27017/")
+        mongo_db = config.get("MONGO_DB_NAME", "pga_worldview")
+        mongo_client = pymongo.MongoClient(mongo_uri, serverSelectionTimeoutMS=1000)
+        coll = mongo_client[mongo_db]["lore"]
         doc = coll.find_one({"doc_id": doc_id})
         if doc: 
             if "_id" in doc: del doc["_id"]
@@ -238,9 +260,11 @@ def sync_lore_to_db(entity: Dict[str, Any]):
             task_type="retrieval_document"
         )
         client = chromadb.PersistentClient(path="./chroma_db")
+        config = load_config()
+        collection_name = config.get("CHROMA_COLLECTION_NAME", "pga_worldview_v1")
         vector_store = Chroma(
             client=client, 
-            collection_name="pga_worldview_v1", 
+            collection_name=collection_name, 
             embedding_function=embeddings
         )
         
@@ -378,10 +402,13 @@ def get_vector_store():
         task_type="retrieval_query"
     )
     client = chromadb.PersistentClient(path="./chroma_db")
-    return Chroma(client=client, collection_name="pga_worldview_v1", embedding_function=emb)
+    config = load_config()
+    collection_name = config.get("CHROMA_COLLECTION_NAME", "pga_worldview_v1")
+    return Chroma(client=client, collection_name=collection_name, embedding_function=emb)
 
 def get_lore_collection_name():
-    return "pga_worldview_v1"
+    config = load_config()
+    return config.get("CHROMA_COLLECTION_NAME", "pga_worldview_v1")
 
 def rotate_api_key():
     """暴露给外部的旋转接口"""
@@ -389,9 +416,12 @@ def rotate_api_key():
 
 def get_mongodb_db():
     try:
-        mongo_client = pymongo.MongoClient("mongodb://localhost:27017/", serverSelectionTimeoutMS=2000)
+        config = load_config()
+        mongo_uri = config.get("MONGO_URI", "mongodb://localhost:27017/")
+        mongo_db = config.get("MONGO_DB_NAME", "pga_worldview")
+        mongo_client = pymongo.MongoClient(mongo_uri, serverSelectionTimeoutMS=2000)
         mongo_client.server_info()
-        return mongo_client["pga_worldview"]
+        return mongo_client[mongo_db]
     except Exception:
         return None
 

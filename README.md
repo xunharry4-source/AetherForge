@@ -110,18 +110,29 @@ pip install -r requirements.txt
 ```json
 {
     "GOOGLE_API_KEYS": ["你的_API_KEY_1", "你的_API_KEY_2"],
+    "MONGO_URI": "mongodb://localhost:27017/",
+    "MONGO_DB_NAME": "pga_worldview",
+    "CHROMA_COLLECTION_NAME": "pga_worldview_v1",
     "SENTRY_DSN": "你的_SENTRY_DSN",
     "LANGFUSE_PUBLIC_KEY": "你的_LANGFUSE_PK",
     "LANGFUSE_SECRET_KEY": "你的_LANGFUSE_SK"
 }
 ```
 
+> [!TIP]
+> **多项目隔离**：如果您有多个项目共享数据库，请通过修改 `MONGO_DB_NAME` 和 `CHROMA_COLLECTION_NAME` 来实现数据隔离。
+
 ### 3. 启动观测基础服务 (可选)
 
-如果你需要使用 Prometheus 和 Grafana，请确保已安装 Docker：
+如果您需要使用 Prometheus 和 Grafana，或者需要独立的 MongoDB/ChromaDB 环境：
 
 ```bash
+# 启动基础监控服务
 cd observability
+docker-compose up -d
+
+# 启动项目专属数据库 (隔离模式)
+cd ..
 docker-compose up -d
 ```
 

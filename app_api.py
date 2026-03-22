@@ -12,7 +12,8 @@ from flask import Flask, request, jsonify, render_template, send_from_directory,
 import os
 import json
 import traceback
-from typing import Any
+import shutil
+from typing import Any, Dict, List
 from flask_cors import CORS
 from logger_utils import get_logger
 
@@ -89,13 +90,21 @@ if HAS_PROMETHEUS:
         'Total LLM token usage',
         ['model', 'token_type', 'agent_name']
     )
+    LLM_REQUEST_COUNTER = prometheus_client.Counter(
+        'llm_requests_total',
+        'Total LLM requests count',
+        ['model', 'agent_name']
+    )
     print("[INFO] Prometheus metrics enabled.")
 else:
     # 如果没有安装 prometheus，定义一个 Mock 计数器避免代码崩溃
     class MockCounter:
         def labels(self, *args, **kwargs): return self
         def inc(self, amount=1): pass
-    TOKEN_USAGE_COUNTER = MockCounter()
+        def collect(self): 
+            return [type('obj', (), {'samples': []})]
+    TOKEN_USAGE_COUNTER: Any = MockCounter()
+    LLM_REQUEST_COUNTER: Any = MockCounter()
 # token_type: prompt / completion
 
 
@@ -596,6 +605,7 @@ def search_lore(retry=True):
         from lore_utils import get_vector_store, get_lore_by_doc_id
         vector_store = get_vector_store()
         if not vector_store:
+            print("[SEARCH ERROR] Vector store initialization failed.")
             return jsonify([])
         
         # 1. 初始向量检索 (检索子片段或父节点)
@@ -636,14 +646,14 @@ def search_lore(retry=True):
         return jsonify(formatted)
         
     except Exception as e:
+        print(f"[SEARCH EXCEPTION] Error: {str(e)}")
+        traceback.print_exc()
         if ("429" in str(e) or "RESOURCE_EXHAUSTED" in str(e)) and retry:
              from lore_utils import rotate_api_key
              if rotate_api_key():
                  print("[API] Rotated key and retrying Search...")
                  return search_lore(retry=False)
         print(f"[SEARCH ERROR]: {str(e)}")
-        import traceback
-        traceback.print_exc()
         return jsonify([]) 
 
 @app.route('/api/snapshots/<outline_id>', methods=['GET'])
@@ -758,6 +768,114 @@ def import_process():
             "results": results,
             "file": file_path
         })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/system/health', methods=['GET'])
+def system_health():
+    """Returns system health metrics."""
+    health: Dict[str, Any] = {
+        "status": "healthy",
+        "timestamp": None,
+        "services": {
+            "mongodb": "未知",
+            "chromadb": "未知",
+            "sentry": "可用" if HAS_SENTRY else "未启用",
+            "prometheus": "可用" if HAS_PROMETHEUS else "未启用"
+        },
+        "storage": {
+            "total_gb": 0,
+            "used_gb": 0,
+            "free_gb": 0,
+            "percent_used": 0
+        },
+        "llm": {
+            "total_tokens": 0,
+            "request_count": 0,
+            "estimated_cost_usd": 0.0
+        }
+    }
+    
+    import datetime
+    health["timestamp"] = datetime.datetime.now().isoformat()
+    
+    # Check MongoDB
+    try:
+        db = get_mongodb_db()
+        if db is not None:
+            # Simple ping
+            db.command('ping')
+            health["services"]["mongodb"] = "已连接"
+        else:
+            health["services"]["mongodb"] = "未连接"
+    except Exception as e:
+        error_msg = str(e)
+        if "Connection refused" in error_msg or "ServerSelectionTimeoutError" in error_msg:
+             health["services"]["mongodb"] = "断开 (服务未启动)"
+        else:
+             health["services"]["mongodb"] = f"错误: {error_msg[:30]}..."
+        health["status"] = "degraded"
+        
+    # Check ChromaDB
+    try:
+        vector_store = get_vector_store()
+        if vector_store:
+            # Check if we can access collection
+            health["services"]["chromadb"] = "已连接"
+        else:
+            health["services"]["chromadb"] = "未连接 (Key错误)"
+    except Exception as e:
+        health["services"]["chromadb"] = f"错误: {str(e)[:30]}..."
+        health["status"] = "degraded"
+        
+    # Check Disk Space
+    try:
+        total, used, free = shutil.disk_usage("/")
+        health["storage"]["total_gb"] = round(total / (1024**3), 2)
+        health["storage"]["used_gb"] = round(used / (1024**3), 2)
+        health["storage"]["free_gb"] = round(free / (1024**3), 2)
+        health["storage"]["percent_used"] = round((used / total) * 100, 2)
+    except Exception:
+        pass
+        
+    # Check LLM Metrics
+    if HAS_PROMETHEUS:
+        try:
+            # Aggregate token count from samples
+            token_samples = TOKEN_USAGE_COUNTER.collect()
+            if token_samples:
+                for sample in token_samples[0].samples:
+                    health["llm"]["total_tokens"] += int(sample.value)
+            
+            # Aggregate request count
+            request_samples = LLM_REQUEST_COUNTER.collect()
+            if request_samples:
+                for sample in request_samples[0].samples:
+                    health["llm"]["request_count"] += int(sample.value)
+                
+            # Basic cost calculation (Approximate for Gemini 1.5 Flash)
+            # Input: $0.075 / 1M tokens, Output: $0.30 / 1M tokens -> Weighted avg approx $0.15/1M
+            health["llm"]["estimated_cost_usd"] = round((health["llm"]["total_tokens"] / 1_000_000) * 0.15, 6)
+        except Exception:
+            pass
+            
+    return jsonify(health)
+
+@app.route('/api/system/logs', methods=['GET'])
+def system_logs():
+    """Reads the tail of the log file."""
+    limit = request.args.get('limit', default=100, type=int)
+    log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs', 'novel_agent.log')
+    
+    if not os.path.exists(log_file):
+        return jsonify({"logs": ["Log file not found at " + log_file]})
+        
+    try:
+        with open(log_file, 'r', encoding='utf-8') as f:
+            # Read all lines then take last N
+            lines = f.readlines()
+            tail = lines[-limit:] if len(lines) > limit else lines
+            return jsonify({"logs": [line.strip() for line in tail]})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 

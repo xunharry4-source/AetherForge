@@ -58,13 +58,15 @@ class AgentState(TypedDict):
 
 ---
 
-## 5. 数据库同步与事务性
+## 5. 数据库同步与多项目隔离 (Multi-Project Isolation)
 
-`saver` 节点确保一旦世界观修改获得批准：
-1. **MongoDB**：全文和元数据（包括版本和时间戳）被追加到 `worldview_db.json`。
-2. **ChromaDB**：新的文本切片被向量化并建立索引，用于未来的 RAG 检索。
+系统支持多项目共存，通过配置层实现逻辑与物理双重隔离：
+1. **逻辑隔离**：在 `config.json` 中配置 `MONGO_DB_NAME` 和 `CHROMA_COLLECTION_NAME`。
+2. **物理隔离**：项目根目录提供专用的 `docker-compose.yml`，使用项目专属容器名（如 `novel_agent_mongodb`）。
 
-这种双写策略确保了 **检索 (RAG)** 和 **持久化 (历史)** 始终保持对齐。
+数据持久化流程：
+1. **MongoDB**：由 `saver` 节点将全文和元数据写入指定的独立数据库。
+2. **ChromaDB**：将文本切片向量化并存入指定的专属 Collection，避免跨项目索引污染。
 
 ---
 
@@ -77,10 +79,11 @@ class AgentState(TypedDict):
 
 ## 7. 全链路展示与观测 (Observability)
 
-为了保证系统的可回溯性，集成了以下观测工具：
-1. **Sentry**：实时捕捉后端异常。
-2. **LangFuse**：追踪每一步 LangGraph 执行，查看 Prompt 历史与 Token 消耗。
-3. **Prometheus**：采集 `/metrics` 指标，包括自定义的 `llm_token_usage_total`。
+系统通过增强的健康检查与后端采集提供深度观测：
+1. **Sentry**：实时捕捉后端异常（需手动安装 `sentry-sdk`）。
+2. **LangFuse**：追踪 LangGraph 执行流，监控 Token 消耗。
+3. **Prometheus + Grafana**：采集系统指标与自定义业务指标。
+4. **实时健康检查**：`/api/system/health` 实时探测 MongoDB 与 ChromaDB 的连通性，并在仪表盘中提供中文化的状态反馈（如：`已连接`、`断开 (服务未启动)`）。
 
 ---
 
