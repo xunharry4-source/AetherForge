@@ -6,6 +6,9 @@
     <title>PGA Worldview Dashboard</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="/static/js/d3.min.js"></script>
+    <script src="/static/js/markmap-lib.js"></script>
+    <script src="/static/js/markmap-view.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
     <style>
         body {
@@ -28,10 +31,88 @@
             box-shadow: 0 0 20px rgba(6, 182, 212, 0.2);
         }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
+        
+        /* Workflow Scrollbar */
+        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 20px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+        
+        @keyframes toast-in { from { transform: translateY(20px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        .animate-toast-in { animation: toast-in 0.3s ease-out forwards; }
+        
+        /* Diagnostic Panel Styles */
+        .diagnostic-details {
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            margin-top: 10px;
+            padding: 16px;
+            font-size: 0.75rem;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .diagnostic-label {
+            color: #94a3b8;
+            font-weight: 600;
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            display: block;
+        }
+        .code-block {
+            font-family: 'monospace';
+            color: #cbd5e1;
+            white-space: pre-wrap;
+            word-break: break-all;
+            background: rgba(0,0,0,0.5);
+            padding: 8px;
+            border-radius: 6px;
+        }
     </style>
 </head>
 <body class="p-4 md:p-8">
-    <div class="max-w-7xl mx-auto space-y-8">
+    <div class="max-w-7xl mx-auto space-y-8 relative">
+        <!-- Floating Status Container -->
+        <div id="floating-status" class="fixed bottom-8 right-8 z-[110] flex flex-col gap-2 pointer-events-none"></div>
+
+        <!-- Mindmap Modal -->
+        <div id="mindmap-modal" class="hidden fixed inset-0 z-[100] bg-slate-950/95 backdrop-blur-2xl flex flex-col p-8 opacity-0 transition-opacity duration-300">
+            <div class="flex justify-between items-center mb-6">
+                <div class="flex items-center gap-4">
+                    <div class="p-4 rounded-3xl bg-purple-500/20 text-purple-400 scale-110">
+                        <i data-lucide="brain-circuit" class="w-8 h-8"></i>
+                    </div>
+                    <div>
+                        <h2 class="text-3xl font-bold bg-gradient-to-r from-purple-400 to-pink-500 bg-clip-text text-transparent">万象星际视角 - 脑力图</h2>
+                        <p class="text-slate-500 text-sm mt-1">交互式层级设定拓扑图 (Interactive Lore Topology)</p>
+                    </div>
+                </div>
+                <div class="flex gap-4">
+                    <button onclick="downloadOPML()" class="flex items-center gap-2 px-6 py-3 bg-blue-600/20 text-blue-400 rounded-2xl hover:bg-blue-600/30 border border-blue-500/20 transition-all font-semibold">
+                        <i data-lucide="download" class="w-5 h-5"></i> 导出 OPML
+                    </button>
+                    <button onclick="closeMindmap()" class="p-3 bg-slate-800 rounded-2xl hover:bg-red-500/20 hover:text-red-400 transition-all text-slate-400 border border-white/5">
+                        <i data-lucide="x" class="w-6 h-6"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="flex-1 glass rounded-[48px] border border-white/10 relative overflow-hidden group shadow-2xl">
+                <div class="absolute top-6 left-6 z-10 flex flex-col gap-2 opacity-0 group-hover:opacity-100 transition-opacity duration-500">
+                    <div class="bg-black/40 backdrop-blur-md px-4 py-2 rounded-xl border border-white/10 text-[10px] text-slate-400 uppercase tracking-widest">Controls</div>
+                    <div class="flex gap-2">
+                        <button onclick="mm.rescale(1.5)" class="p-2 bg-slate-800/80 rounded-lg hover:bg-white/10 transition-all" title="Zoom In"><i data-lucide="plus" class="w-4 h-4"></i></button>
+                        <button onclick="mm.rescale(0.5)" class="p-2 bg-slate-800/80 rounded-lg hover:bg-white/10 transition-all" title="Zoom Out"><i data-lucide="minus" class="w-4 h-4"></i></button>
+                    </div>
+                </div>
+                <svg id="markmap-svg" class="w-full h-full cursor-grab active:cursor-grabbing"></svg>
+                <div id="mindmap-loading" class="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/40 backdrop-blur-sm z-20">
+                    <div class="w-12 h-12 border-4 border-purple-500/20 border-t-purple-500 rounded-full animate-spin"></div>
+                    <p class="mt-4 text-purple-400 font-medium animate-pulse">正在解析脑际全息拓扑...</p>
+                </div>
+            </div>
+        </div>
+
         <!-- Header -->
         <header class="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div class="flex items-center gap-4">
@@ -74,6 +155,7 @@
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <!-- Sidebar: Categories & Search -->
                 <div class="space-y-6">
+                    <!-- Search Section -->
                     <div class="glass p-6 rounded-3xl space-y-4">
                         <h2 class="text-lg font-semibold flex items-center gap-2">
                             <i data-lucide="search" class="w-5 h-5 text-cyan-400"></i>
@@ -85,36 +167,39 @@
                             立即搜索
                         </button>
                     </div>
-                    
-                    <!-- Import Section -->
-                            <div class="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden">
-                                <div id="import-progress-bar" class="h-full bg-purple-500 w-0 transition-all duration-500"></div>
-                            </div>
-                            <p id="import-status-text" class="text-[10px] text-slate-500">正在解析文档...</p>
-                        </div>
-                    </div>
+                </div>
 
-                    <div class="glass p-6 rounded-3xl space-y-4 overflow-hidden">
+                    <div class="glass p-6 rounded-3xl space-y-4 flex flex-col h-[600px] overflow-hidden">
                         <div class="flex items-center justify-between">
                             <h2 class="text-lg font-semibold flex items-center gap-2">
                                 <i data-lucide="layers" class="w-5 h-5 text-blue-400"></i>
-                                创作资产库 (Assets)
+                                核心设定架构 (Tree)
                             </h2>
-                            <button onclick="fetchLore()" class="text-slate-500 hover:text-cyan-400 p-1 rounded-lg transition-all">
-                                <i data-lucide="refresh-cw" class="w-4 h-4"></i>
-                            </button>
+                            <div class="flex gap-2">
+                                <button onclick="showMindmap()" class="text-slate-500 hover:text-purple-400 p-1 rounded-lg transition-all" title="查看脑力图">
+                                    <i data-lucide="brain-circuit" class="w-4 h-4"></i>
+                                </button>
+                                <button onclick="fetchLoreTree()" class="text-slate-500 hover:text-cyan-400 p-1 rounded-lg transition-all" title="刷新架构树">
+                                    <i data-lucide="refresh-cw" class="w-4 h-4"></i>
+                                </button>
+                            </div>
                         </div>
                         
-                        <!-- Filter Tabs -->
-                        <div class="flex gap-1 p-1 bg-black/40 rounded-xl border border-slate-800 text-[10px] font-bold">
-                            <button onclick="setFilter('all')" id="filter-all" class="filter-btn active flex-1 py-1.5 px-2 rounded-lg bg-slate-800 text-slate-200">全部</button>
-                            <button onclick="setFilter('Worldview')" id="filter-worldview" class="filter-btn flex-1 py-1.5 px-2 rounded-lg text-slate-500 hover:text-slate-300">设定</button>
-                            <button onclick="setFilter('Outline')" id="filter-outline" class="filter-btn flex-1 py-1.5 px-2 rounded-lg text-slate-500 hover:text-slate-300">大纲</button>
-                            <button onclick="setFilter('Prose')" id="filter-prose" class="filter-btn flex-1 py-1.5 px-2 rounded-lg text-slate-500 hover:text-slate-300">正文</button>
+                        <!-- Tree Container -->
+                        <div id="lore-tree-container" class="flex-1 overflow-y-auto pr-2 scrollbar-hide text-sm space-y-1">
+                            <div class="text-slate-600 italic py-4">正在构建架构树...</div>
                         </div>
 
-                        <div id="log-list" class="space-y-3 max-h-[500px] overflow-y-auto pr-2 scrollbar-hide">
-                            <!-- Logs inject here -->
+                        <!-- Import Progress (Integrated) -->
+                        <div id="import-section" class="hidden pt-4 border-t border-slate-800 space-y-2">
+                             <div class="flex justify-between text-[10px]">
+                                <span class="text-slate-400">文档解析进度</span>
+                                <span id="import-percent" class="text-purple-400">0%</span>
+                             </div>
+                             <div class="h-1 w-full bg-slate-800 rounded-full overflow-hidden">
+                                <div id="import-progress-bar" class="h-full bg-purple-500 w-0 transition-all duration-500"></div>
+                             </div>
+                             <p id="import-status-text" class="text-[9px] text-slate-500 truncate">就绪</p>
                         </div>
                     </div>
                 </div>
@@ -146,42 +231,88 @@
 
         <!-- Agent View -->
         <div id="agent-view" class="tab-view hidden space-y-8">
-            <div class="glass p-8 rounded-[40px] space-y-6">
-                <!-- Agent Type Tabs -->
-                <div class="flex gap-2">
-                    <button id="btn-agent-worldview" onclick="setAgentType('worldview')" class="agent-tab-btn active bg-cyan-600 text-white px-4 py-2 rounded-xl text-sm font-medium transition-all">世界观 Agent</button>
-                    <button id="btn-agent-outline" onclick="setAgentType('outline')" class="agent-tab-btn text-slate-400 hover:text-slate-200 px-4 py-2 rounded-xl text-sm font-medium transition-all">大纲 Agent</button>
-                    <button id="btn-agent-writing" onclick="setAgentType('writing')" class="agent-tab-btn text-slate-400 hover:text-slate-200 px-4 py-2 rounded-xl text-sm font-medium transition-all">执笔 Agent</button>
+            <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                <div class="lg:col-span-2 glass p-8 rounded-[40px] space-y-6">
+                    <!-- Agent Type Tabs -->
+                    <div class="flex gap-2">
+                        <button id="btn-agent-worldview" onclick="setAgentType('worldview')" class="agent-tab-btn active bg-cyan-600 text-white px-4 py-2 rounded-xl text-sm font-medium transition-all">世界观 Agent</button>
+                        <button id="btn-agent-outline" onclick="setAgentType('outline')" class="agent-tab-btn text-slate-400 hover:text-slate-200 px-4 py-2 rounded-xl text-sm font-medium transition-all">大纲 Agent</button>
+                        <button id="btn-agent-writing" onclick="setAgentType('writing')" class="agent-tab-btn text-slate-400 hover:text-slate-200 px-4 py-2 rounded-xl text-sm font-medium transition-all">执笔 Agent</button>
+                    </div>
+
+                    <!-- Input Area -->
+                    <div class="space-y-2">
+                        <label id="agent-input-label" class="text-xs text-slate-400 flex items-center gap-1">
+                            <i data-lucide="globe" class="w-4 h-4"></i> 输入您的设定草案或指令
+                        </label>
+                        <textarea id="agent-input" rows="4" placeholder="例如：增加一个位于室女座超星系团边缘的智械母舰设定..."
+                            class="w-full bg-slate-900/50 border border-slate-700/50 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all resize-none"></textarea>
+                    </div>
+
+                    <!-- Action Bar -->
+                    <div class="flex gap-4 items-center">
+                        <button id="agent-run-btn" onclick="runAgent()" class="flex-1 bg-cyan-600 hover:opacity-90 text-white font-bold py-4 rounded-2xl transition-all shadow-lg">启动 PGA</button>
+                        <span id="agent-status" class="text-xs text-slate-500">就绪</span>
+                    </div>
+
+                    <!-- Output Area -->
+                    <div id="agent-output" class="min-h-[200px] bg-black/20 rounded-3xl p-6 border border-slate-800">
+                        <div class="text-slate-500 text-sm italic">Agent 输出将在此显示...</div>
+                    </div>
+
+                    <!-- Interaction: Feedback & Approve -->
+                    <div id="agent-interaction" class="hidden space-y-4 bg-slate-900/50 p-6 rounded-3xl border border-slate-800">
+                        <div class="text-xs text-slate-500 uppercase tracking-widest">迭代反馈区</div>
+                        <textarea id="agent-feedback" rows="2" placeholder="输入修改意见..."
+                            class="w-full bg-black/30 border border-slate-700/50 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500 transition-all resize-none"></textarea>
+                        <div class="flex gap-3">
+                            <button id="agent-feedback-btn" class="flex-1 bg-amber-600 hover:bg-amber-500 text-white font-semibold py-3 rounded-xl transition-all">提交修改意见</button>
+                            <button id="agent-approve-btn" class="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 rounded-xl transition-all">批准并持久化</button>
+                        </div>
+                    </div>
                 </div>
 
-                <!-- Input Area -->
-                <div class="space-y-2">
-                    <label id="agent-input-label" class="text-xs text-slate-400 flex items-center gap-1">
-                        <i data-lucide="globe" class="w-4 h-4"></i> 输入您的设定草案或指令
-                    </label>
-                    <textarea id="agent-input" rows="4" placeholder="例如：增加一个位于室女座超星系团边缘的智械母舰设定..."
-                        class="w-full bg-slate-900/50 border border-slate-700/50 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500 transition-all resize-none"></textarea>
-                </div>
-
-                <!-- Action Bar -->
-                <div class="flex gap-4 items-center">
-                    <button id="agent-run-btn" class="flex-1 bg-cyan-600 hover:opacity-90 text-white font-bold py-4 rounded-2xl transition-all shadow-lg">启动 PGA</button>
-                    <span id="agent-status" class="text-xs text-slate-500">就绪</span>
-                </div>
-
-                <!-- Output Area -->
-                <div id="agent-output" class="min-h-[200px] bg-black/20 rounded-3xl p-6 border border-slate-800">
-                    <div class="text-slate-500 text-sm italic">Agent 输出将在此显示...</div>
-                </div>
-
-                <!-- Interaction: Feedback & Approve -->
-                <div id="agent-interaction" class="hidden space-y-4 bg-slate-900/50 p-6 rounded-3xl border border-slate-800">
-                    <div class="text-xs text-slate-500 uppercase tracking-widest">迭代反馈区</div>
-                    <textarea id="agent-feedback" rows="2" placeholder="输入修改意见..."
-                        class="w-full bg-black/30 border border-slate-700/50 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500 transition-all resize-none"></textarea>
-                    <div class="flex gap-3">
-                        <button id="agent-feedback-btn" class="flex-1 bg-amber-600 hover:bg-amber-500 text-white font-semibold py-3 rounded-xl transition-all">提交修改意见</button>
-                        <button id="agent-approve-btn" class="flex-1 bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-3 rounded-xl transition-all">批准并持久化</button>
+                <!-- Workflow Trace Panel (Dify Style) -->
+                <div id="workflow-trace-wrapper" class="hidden flex-shrink-0 w-80 flex flex-col glass rounded-3xl border border-white/10 overflow-hidden">
+                    <div class="p-4 border-b border-white/5 bg-white/5 flex flex-col gap-4">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <div class="w-2 h-2 rounded-full bg-cyan-400 animate-pulse"></div>
+                                <h3 class="text-xs font-bold text-slate-300 uppercase tracking-widest">执行追踪 (LOGS)</h3>
+                            </div>
+                            <span class="px-2 py-0.5 rounded-full bg-cyan-500/10 text-cyan-400 text-[10px] font-bold">LIVE</span>
+                        </div>
+                        
+                        <!-- Step Indicator -->
+                        <div class="flex justify-between items-center px-1">
+                            <div class="flex flex-col items-center gap-1">
+                                <div id="step-dot-1" class="w-3 h-3 rounded-full bg-slate-700 transition-all duration-500"></div>
+                                <span id="step-label-1" class="text-[10px] text-slate-500">策划</span>
+                            </div>
+                            <div class="h-[1px] flex-1 bg-white/10 mb-4 mx-1"></div>
+                            <div class="flex flex-col items-center gap-1">
+                                <div id="step-dot-2" class="w-3 h-3 rounded-full bg-slate-700 transition-all duration-500"></div>
+                                <span id="step-label-2" class="text-[10px] text-slate-500">生成</span>
+                            </div>
+                            <div class="h-[1px] flex-1 bg-white/10 mb-4 mx-1"></div>
+                            <div class="flex flex-col items-center gap-1">
+                                <div id="step-dot-3" class="w-3 h-3 rounded-full bg-slate-700 transition-all duration-500"></div>
+                                <span id="step-label-3" class="text-[10px] text-slate-500">防御</span>
+                            </div>
+                            <div class="h-[1px] flex-1 bg-white/10 mb-4 mx-1"></div>
+                            <div class="flex flex-col items-center gap-1">
+                                <div id="step-dot-4" class="w-3 h-3 rounded-full bg-slate-700 transition-all duration-500"></div>
+                                <span id="step-label-4" class="text-[10px] text-slate-500">审计</span>
+                            </div>
+                            <div class="h-[1px] flex-1 bg-white/10 mb-4 mx-1"></div>
+                            <div class="flex flex-col items-center gap-1">
+                                <div id="step-dot-5" class="w-3 h-3 rounded-full bg-slate-700 transition-all duration-500"></div>
+                                <span id="step-label-5" class="text-[10px] text-slate-500">批准</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div id="workflow-log-container" class="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar">
+                        <!-- Real-time logs will be injected here -->
                     </div>
                 </div>
             </div>
@@ -424,23 +555,32 @@
 
     <script>
         // Tab Management
+        // --- Tab Management ---
         function switchTab(tabId) {
+            // Hide all views
             document.querySelectorAll('.tab-view').forEach(v => v.classList.add('hidden'));
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active', 'bg-cyan-600', 'text-white'));
             
-            document.getElementById(`${tabId}-view`).classList.remove('hidden');
+            // Show target view
+            const targetView = document.getElementById(`${tabId}-view`);
+            if (targetView) {
+                targetView.classList.remove('hidden');
+                // Ensure specific scroll behavior or resets if needed
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+
             const activeBtn = Array.from(document.querySelectorAll('.tab-btn'))
                 .find(b => b.getAttribute('onclick').includes(tabId));
             if (activeBtn) {
                 activeBtn.classList.add('active', 'bg-cyan-600', 'text-white');
             }
 
-            if (tabId === 'entity-drafts') {
-                fetchDrafts();
-            }
+            // Sub-routing logic
+            if (tabId === 'entity-drafts') fetchDrafts();
+            if (tabId === 'archive') fetchLoreTree();
+            if (tabId === 'system') fetchHealth();
         }
 
-        const logList = document.getElementById('log-list');
         const detailView = document.getElementById('detail-view');
         const welcomeView = document.getElementById('welcome-view');
         const detailTitle = document.getElementById('detail-title');
@@ -448,80 +588,102 @@
         const countDocs = document.getElementById('count-docs');
 
         let allLoreData = [];
+        let loreTree = null;
+
+        // --- Tree Management ---
+        async function fetchLoreTree() {
+            try {
+                const res = await fetch('/api/lore/tree');
+                loreTree = await res.json();
+                
+                // Concurrent fetch for full list (sync count)
+                const loreRes = await fetch('/api/lore');
+                allLoreData = await loreRes.json();
+                countDocs.innerText = allLoreData.length;
+                
+                renderLoreTree();
+            } catch (err) {
+                console.error("Failed to fetch lore tree:", err);
+            }
+        }
+
+        function renderLoreTree() {
+            const container = document.getElementById('lore-tree-container');
+            if (!loreTree || (!loreTree.children.length && !loreTree.entries.length)) {
+                container.innerHTML = `<div class="text-slate-500 italic py-10 text-center">档案库尚无数据</div>`;
+                return;
+            }
+            container.innerHTML = '';
+            loreTree.children.forEach(node => container.appendChild(createTreeNode(node, 0)));
+            if (window.lucide) lucide.createIcons();
+        }
+
+        function createTreeNode(node, depth) {
+            const div = document.createElement('div');
+            div.className = "select-none";
+            const hasChildren = node.children.length > 0;
+            const hasEntries = node.entries.length > 0;
+            
+            const header = document.createElement('div');
+            header.className = `flex items-center gap-2 py-1.5 px-2 rounded-lg cursor-pointer transition-all hover:bg-white/5 ${depth > 0 ? 'ml-4' : ''}`;
+            
+            const icon = hasChildren ? 'folder' : (hasEntries ? 'box' : 'file');
+            header.innerHTML = `
+                <i data-lucide="${hasChildren ? 'chevron-right' : icon}" class="w-3.5 h-3.5 text-slate-500 toggle-icon transition-transform"></i>
+                <span class="${hasChildren ? 'font-bold text-slate-300' : 'text-slate-400'}">${node.name}</span>
+                ${hasEntries ? `<span class="ml-auto text-[9px] bg-slate-800 text-slate-500 px-1.5 py-0.5 rounded-full">${node.entries.length}</span>` : ''}
+            `;
+            
+            const childContainer = document.createElement('div');
+            childContainer.className = "hidden border-l border-slate-800/50 ml-3.5 pl-2";
+            
+            header.onclick = (e) => {
+                e.stopPropagation();
+                if (hasChildren || hasEntries) {
+                    const isHidden = childContainer.classList.contains('hidden');
+                    childContainer.classList.toggle('hidden');
+                    const toggleIco = header.querySelector('.toggle-icon');
+                    if (hasChildren) {
+                        toggleIco.style.transform = isHidden ? 'rotate(90deg)' : 'rotate(0deg)';
+                    }
+                }
+            };
+            
+            div.appendChild(header);
+            node.children.forEach(child => childContainer.appendChild(createTreeNode(child, depth + 1)));
+            node.entries.forEach(entry => {
+                const item = document.createElement('div');
+                item.className = "flex items-center gap-2 py-1 px-2 rounded-lg cursor-pointer hover:bg-cyan-500/10 hover:text-cyan-400 transition-all ml-4 text-[13px] group";
+                item.innerHTML = `
+                    <i data-lucide="file-text" class="w-3 h-3 text-slate-600 group-hover:text-cyan-500"></i>
+                    <span class="truncate">${entry.name}</span>
+                `;
+                item.onclick = (e) => {
+                    e.stopPropagation();
+                    showLoreDetailById(entry.id);
+                };
+                childContainer.appendChild(item);
+            });
+            div.appendChild(childContainer);
+            return div;
+        }
+
+        function showLoreDetailById(id) {
+            const entry = allLoreData.find(d => d.id === id);
+            if (entry) {
+                welcomeView.classList.add('hidden');
+                detailView.classList.remove('hidden');
+                detailTitle.innerText = entry.name;
+                detailContent.innerText = entry.content;
+                currentEditingIndex = allLoreData.indexOf(entry);
+                if (window.renderHistory) renderHistory(entry);
+                window.scrollTo({ top: 300, behavior: 'smooth' }); // Scroll into view
+            }
+        }
         let currentFilter = 'all';
 
-        async function fetchLore() {
-            try {
-                const res = await fetch('/api/lore?t=' + Date.now());
-                allLoreData = await res.json();
-                if(countDocs) countDocs.innerText = allLoreData.length;
-                renderLogs();
-            } catch (err) {
-                console.error("API error:", err);
-            }
-        }
-
-        function setFilter(filter) {
-            currentFilter = filter;
-            document.querySelectorAll('.filter-btn').forEach(b => {
-                b.classList.remove('active', 'bg-slate-800', 'text-slate-200');
-                b.classList.add('text-slate-500');
-            });
-            const btn = document.getElementById(`filter-${filter.toLowerCase()}`);
-            if (btn) {
-                btn.classList.add('active', 'bg-slate-800', 'text-slate-200');
-                btn.classList.remove('text-slate-500');
-            }
-            renderLogs();
-        }
-
-        function renderLogs() {
-            const data = allLoreData.filter(item => {
-                if (currentFilter === 'all') return true;
-                if (currentFilter === 'Worldview') {
-                    return item.category !== 'Outline' && item.category !== 'Prose';
-                }
-                return item.category === currentFilter;
-            });
-
-            logList.innerHTML = data.map((item, index) => {
-                let color = 'cyan';
-                if (item.category === 'Outline') color = 'emerald';
-                if (item.category === 'Prose' || item.category === 'Snapshot') color = 'purple';
-                
-                return `
-                    <div class="relative group">
-                        <div onclick="showDetailByIndex(${allLoreData.indexOf(item)})" 
-                            class="p-4 rounded-2xl bg-slate-800/20 border border-slate-800 hover:border-${color}-500/40 hover:bg-slate-800/50 transition-all cursor-pointer text-left">
-                            <div class="flex justify-between items-center mb-1">
-                                <span class="text-[9px] text-${color}-400 font-bold uppercase tracking-wider bg-${color}-500/10 px-1.5 py-0.5 rounded">${item.category || 'General'}</span>
-                                <span class="text-[9px] text-slate-600 font-mono">${item.timestamp}</span>
-                            </div>
-                            <div class="text-sm font-semibold group-hover:text-${color}-400 transition-colors line-clamp-2">${item.name || item.query}</div>
-                        </div>
-                        <button onclick="event.stopPropagation(); openEditArchiveModal(${allLoreData.indexOf(item)})" 
-                            title="修改本条目"
-                            class="absolute top-4 right-4 opacity-0 group-hover:opacity-100 p-1.5 bg-slate-700 hover:bg-cyan-600 rounded-lg text-white transition-all">
-                            <i data-lucide="edit-3" class="w-3 h-3"></i>
-                        </button>
-                    </div>
-                `;
-            }).join('');
-            lucide.createIcons();
-        }
-
-        function showDetailByIndex(index) {
-            const item = allLoreData[index];
-            if (!item) return;
-            showDetail(item.name || item.query, item.content);
-        }
-
-        function showDetail(title, content) {
-            detailTitle.innerText = title;
-            detailContent.innerText = content;
-            welcomeView.classList.add('hidden');
-            detailView.classList.remove('hidden');
-        }
+        // --- Search Integration ---
+        // (Moved and unified below)
 
         let currentEditingIndex = -1;
 
@@ -537,12 +699,12 @@
             if (item.history && item.history.length > 0) {
                 historyContainer.classList.remove('hidden');
                 historyTimeline.innerHTML = item.history.map((h, i) => `
-                    <button onclick="rollbackToHistory(\${index}, \${i})" class="shrink-0 px-3 py-1.5 bg-slate-800 hover:bg-cyan-900 border border-slate-700 hover:border-cyan-500 rounded-lg text-xs text-slate-300 transition-all flex flex-col items-start gap-1">
-                        <span class="font-bold text-cyan-400"><i data-lucide="clock" class="w-3 h-3 inline"></i> V\${i + 1}</span>
-                        <span class="text-[9px] text-slate-500">\${new Date(h.timestamp).toLocaleString()}</span>
+                    <button onclick="rollbackToHistory(${index}, ${i})" class="shrink-0 px-3 py-1.5 bg-slate-800 hover:bg-cyan-900 border border-slate-700 hover:border-cyan-500 rounded-lg text-xs text-slate-300 transition-all flex flex-col items-start gap-1">
+                        <span class="font-bold text-cyan-400"><i data-lucide="clock" class="w-3 h-3 inline"></i> V${i + 1}</span>
+                        <span class="text-[9px] text-slate-500">${new Date(h.timestamp).toLocaleString()}</span>
                     </button>
                 `).join('') + `
-                    <button onclick="rollbackToHistory(\${index}, -1)" class="shrink-0 px-3 py-1.5 bg-slate-800 hover:bg-purple-900 border border-slate-700 hover:border-purple-500 rounded-lg text-xs text-slate-300 transition-all flex flex-col items-start gap-1">
+                    <button onclick="rollbackToHistory(${index}, -1)" class="shrink-0 px-3 py-1.5 bg-slate-800 hover:bg-purple-900 border border-slate-700 hover:border-purple-500 rounded-lg text-xs text-slate-300 transition-all flex flex-col items-start gap-1">
                         <span class="font-bold text-purple-400"><i data-lucide="rotate-ccw" class="w-3 h-3 inline"></i> 重置</span>
                         <span class="text-[9px] text-slate-500">最新版本</span>
                     </button>
@@ -583,11 +745,11 @@
                 <div class="space-y-4">
                     <div class="p-4 bg-red-900/10 border border-red-500/30 rounded-xl">
                         <div class="text-[10px] text-red-500 font-bold mb-2 uppercase tracking-wider"><i data-lucide="minus-circle" class="w-3 h-3 inline"></i> 修改前 (OLD)</div>
-                        <pre class="text-xs text-red-200/70 whitespace-pre-wrap font-mono">\${oldContent}</pre>
+                        <pre class="text-xs text-red-200/70 whitespace-pre-wrap font-mono">${oldContent}</pre>
                     </div>
                     <div class="p-4 bg-emerald-900/10 border border-emerald-500/30 rounded-xl">
                         <div class="text-[10px] text-emerald-500 font-bold mb-2 uppercase tracking-wider"><i data-lucide="plus-circle" class="w-3 h-3 inline"></i> 修改后 (NEW)</div>
-                        <pre class="text-xs text-emerald-300 whitespace-pre-wrap font-mono relative"><div class="absolute -left-2 top-0 bottom-0 w-1 bg-emerald-500/50 rounded-full"></div>\${newContent}</pre>
+                        <pre class="text-xs text-emerald-300 whitespace-pre-wrap font-mono relative"><div class="absolute -left-2 top-0 bottom-0 w-1 bg-emerald-500/50 rounded-full"></div>${newContent}</pre>
                     </div>
                 </div>
             `;
@@ -642,7 +804,7 @@
                 if (data.status === 'success') {
                     alert("保存成功！");
                     closeEditArchiveModal();
-                    fetchLore(); 
+                    fetchLoreTree(); 
                 } else {
                     let errorMsg = data.error || "未知错误";
                     if (data.received) {
@@ -652,6 +814,9 @@
                     btn.innerText = "保存修改";
                     btn.disabled = false;
                 }
+                // The original code had an `alert("保存失败: " + err);` here, which would always run.
+                // It's likely a copy-paste error. Removing it.
+            } catch (err) {
                 alert("保存失败: " + err);
             } finally {
                 document.getElementById('diff-modal').classList.add('hidden');
@@ -661,6 +826,7 @@
         }
 
 
+        // --- Search Integration ---
         async function executeSearch() {
             const query = document.getElementById('search-input').value;
             console.log("Search clicked, query:", query);
@@ -672,37 +838,37 @@
             btn.disabled = true;
 
             try {
-                const res = await fetch('/api/search', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query })
-                });
-                console.log("Search res status:", res.status);
+                const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
                 const data = await res.json();
-                console.log("Search records count:", data.length);
                 
-                if (data.length === 0) {
-                    logList.innerHTML = `<div class="text-xs text-slate-500 italic p-4">未找到相关设定...</div>`;
+                welcomeView.classList.add('hidden');
+                detailView.classList.remove('hidden');
+                detailTitle.innerText = `搜索结果: ${query}`;
+                
+                if (data.results && data.results.length > 0) {
+                    detailContent.innerHTML = data.results.map(r => `
+                        <div class="mb-6 p-4 bg-white/5 rounded-2xl border border-slate-800">
+                            <div class="text-cyan-400 font-bold mb-2">${r.metadata.name || '未命名'}</div>
+                            <div class="text-sm text-slate-300 mb-2">${r.content}</div>
+                            <div class="text-[10px] text-slate-500">来源: ${r.metadata.category} | 分数: ${r.score.toFixed(4)}</div>
+                        </div>
+                    `).join('');
                 } else {
-                    // Reset filter to 'all' to show search results
-                    setFilter('all');
-                    allLoreData = data; 
-                    renderLogs();
+                    detailContent.innerHTML = `<div class="text-slate-500 italic">未找到相关结果</div>`;
                 }
             } catch (err) {
-                console.error("Search error:", err);
-                alert("搜索失败，请检查后端台日志: " + err);
+                console.error("Search failed:", err);
+                alert("搜索失败: " + err);
             } finally {
                 btn.innerText = originalText;
                 btn.disabled = false;
             }
         }
 
-        // Add event listener for Search
-        const sBtn = document.getElementById('search-btn');
-        if (sBtn) sBtn.onclick = executeSearch;
-        const sInput = document.getElementById('search-input');
-        if (sInput) sInput.onkeydown = (e) => { if (e.key === 'Enter') executeSearch(); };
+        if (document.getElementById('search-btn')) document.getElementById('search-btn').onclick = executeSearch;
+        if (document.getElementById('search-input')) {
+            document.getElementById('search-input').onkeypress = (e) => { if(e.key === 'Enter') executeSearch(); };
+        }
 
         function showWelcome() {
             welcomeView.classList.remove('hidden');
@@ -752,6 +918,146 @@
             lucide.createIcons();
         }
 
+        async function processStreamResponse(response, onNodeUpdate, onFinalState) {
+            const reader = response.body.getReader();
+            const decoder = new TextDecoder();
+            let buffer = '';
+
+            try {
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        try {
+                            const data = JSON.parse(line);
+                            if (data.type === 'node_update') {
+                                onNodeUpdate(data);
+                            } else if (data.type === 'final_state') {
+                                onFinalState(data);
+                            } else if (data.type === 'error') {
+                                showToast("Agent 内部错误: " + data.error, "error");
+                            }
+                        } catch (e) {
+                            console.error("NDJSON Parse Error:", e, line);
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error("Stream reader error:", err);
+                showToast("流式连接中断: " + err.message, "error");
+            }
+        }
+
+        let workflowSteps = [];
+
+        function updateWorkflowLog(node, message, diagnostics = null) {
+            const container = document.getElementById('workflow-log-container');
+            const wrapper = document.getElementById('workflow-trace-wrapper');
+            if (wrapper) wrapper.classList.remove('hidden');
+            
+            const time = new Date().toLocaleTimeString('zh-CN', { hour12: false });
+            const logId = `log-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            
+            const entry = document.createElement('div');
+            entry.className = "p-3 rounded-xl bg-white/5 border border-white/5 space-y-2 group transition-all hover:bg-white/10";
+            
+            let diagHtml = '';
+            if (diagnostics && Object.keys(diagnostics).length > 0) {
+                const nodeDiag = diagnostics[node] || Object.values(diagnostics)[0];
+                if (nodeDiag && (nodeDiag.prompt || nodeDiag.raw_output)) {
+                    diagHtml = `
+                        <div class="mt-2 text-[10px] flex justify-end">
+                            <button onclick="toggleDiagnostics('${logId}')" class="px-2 py-1 rounded-lg bg-blue-500/20 text-blue-400 hover:bg-blue-500/30 transition-all flex items-center gap-1">
+                                <i data-lucide="terminal" class="w-3 h-3"></i> 查看诊断参数 (Inspector)
+                            </button>
+                        </div>
+                        <div id="${logId}" class="hidden diagnostic-details space-y-4">
+                            <div>
+                                <span class="diagnostic-label">LLM Input (Prompt)</span>
+                                <div class="code-block">${escapeHtml(nodeDiag.prompt || 'N/A')}</div>
+                            </div>
+                            <div>
+                                <span class="diagnostic-label">LLM Response (Raw)</span>
+                                <div class="code-block">${escapeHtml(nodeDiag.raw_output || 'N/A')}</div>
+                            </div>
+                        </div>
+                    `;
+                }
+            }
+
+            entry.innerHTML = `
+                <div class="flex items-start gap-3">
+                    <div class="mt-1 w-2 h-2 rounded-full bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.6)]"></div>
+                    <div class="flex-1">
+                        <div class="flex justify-between items-center mb-1">
+                            <span class="text-[10px] font-bold text-cyan-400 uppercase tracking-tighter">节点: ${node}</span>
+                            <span class="text-[10px] text-slate-500 font-mono">${time}</span>
+                        </div>
+                        <p class="text-xs text-slate-300 leading-relaxed">${message}</p>
+                        ${diagHtml}
+                    </div>
+                </div>
+            `;
+            
+            container.appendChild(entry);
+            container.scrollTop = container.scrollHeight;
+            lucide.createIcons();
+            
+            // Update step indicator if it exists
+            updateStepIndicator(node);
+        }
+
+        function toggleDiagnostics(id) {
+            const el = document.getElementById(id);
+            if (el) {
+                el.classList.toggle('hidden');
+            }
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function updateStepIndicator(node) {
+            // Log logic phases
+            const phases = {
+                'autoresearch': 1,
+                'planner': 1,
+                'generator': 2,
+                'defense': 3,
+                'critic': 4,
+                'reviewer': 4,
+                'human': 5
+            };
+            const currentPhase = phases[node];
+            if (!currentPhase) return;
+            
+            for (let i = 1; i <= 5; i++) {
+                const dot = document.getElementById(`step-dot-${i}`);
+                const label = document.getElementById(`step-label-${i}`);
+                if (dot && label) {
+                    if (i < currentPhase) {
+                        dot.className = "w-3 h-3 rounded-full bg-cyan-500 shadow-lg shadow-cyan-500/50";
+                        label.className = "text-[10px] text-cyan-400 font-bold";
+                    } else if (i === currentPhase) {
+                        dot.className = "w-3 h-3 rounded-full bg-cyan-400 animate-pulse ring-4 ring-cyan-500/20";
+                        label.className = "text-[10px] text-white font-bold";
+                    } else {
+                        dot.className = "w-3 h-3 rounded-full bg-slate-700";
+                        label.className = "text-[10px] text-slate-500";
+                    }
+                }
+            }
+        }
+
         async function runAgent() {
             const query = document.getElementById('agent-input').value;
             if (!query) return;
@@ -760,26 +1066,28 @@
             const outputDiv = document.getElementById('agent-output');
             const statusSpan = document.getElementById('agent-status');
             const runBtn = document.getElementById('agent-run-btn');
+            const workflowTraceWrapper = document.getElementById('workflow-trace-wrapper');
+            const workflowLogContainer = document.getElementById('workflow-log-container');
             const originalBtnHtml = runBtn.innerHTML;
             
-            statusSpan.innerText = "生成中...";
+            statusSpan.innerText = "链路初始化...";
             outputDiv.innerHTML = `<div class="text-cyan-400 animate-pulse">正在进入 PGA 0-4 逻辑轨道 (${currentAgentType.toUpperCase()})...</div>`;
-            runBtn.innerHTML = '<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> 图谱编织中...';
+            runBtn.innerHTML = '<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> 正在激活...';
             runBtn.disabled = true;
-
-            const progMessages = [
-                "正在启动 Autoresearch 闭环推演...",
-                "正在进行局部热力学防崩溃检测...",
-                "正在从本地 ChromaDB 召回前置概念...",
-                "Pydantic DefenseNode 正在拦截畸形概念...",
-                "正在进行后台逻辑反思与自我纠偏...",
-                "尝试弥合物理悖论..."
-            ];
-            let progIdx = 0;
-            const progInterval = setInterval(() => {
-                statusSpan.innerText = progMessages[progIdx % progMessages.length];
-                progIdx++;
-            }, 3500);
+            
+            // Reset tracker
+            workflowTraceWrapper.classList.remove('hidden');
+            workflowLogContainer.innerHTML = '<div class="text-slate-500 italic">序列启动中...</div>';
+            
+            // Reset step indicators
+            for (let i = 1; i <= 5; i++) {
+                const dot = document.getElementById(`step-dot-${i}`);
+                const label = document.getElementById(`step-label-${i}`);
+                if (dot && label) {
+                    dot.className = "w-3 h-3 rounded-full bg-slate-700 transition-all duration-500";
+                    label.className = "text-[10px] text-slate-500";
+                }
+            }
 
             try {
                 const res = await fetch('/api/agent/query', {
@@ -787,13 +1095,26 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ query, thread_id: current_thread_id, agent_type: currentAgentType })
                 });
-                const data = await res.json();
-                if (data.error) throw new Error(data.error);
-                renderAgentState(data);
+
+                if (!res.ok) throw new Error(await res.text());
+
+                await processStreamResponse(res, 
+                    (nodeUpdate) => {
+                        updateWorkflowLog(nodeUpdate.node, nodeUpdate.status_message, nodeUpdate.diagnostics);
+                        statusSpan.innerText = `正在执行: ${nodeUpdate.node}`;
+                    },
+                    (finalState) => {
+                        current_thread_id = finalState.thread_id;
+                        renderAgentState(finalState);
+                        showToast("链路执行完毕", "success");
+                    }
+                );
+
             } catch (err) {
+                console.error(err);
                 outputDiv.innerHTML = `<div class="text-red-400 p-4 bg-red-500/10 border border-red-500/30 rounded-xl">错误: ${err.message}</div>`;
+                showToast("启动失败: " + err.message, "error");
             } finally {
-                clearInterval(progInterval);
                 statusSpan.innerText = "就绪";
                 runBtn.innerHTML = originalBtnHtml;
                 runBtn.disabled = false;
@@ -801,42 +1122,120 @@
             }
         }
 
+        function showToast(message, type = 'info') {
+            const toast = document.createElement('div');
+            toast.className = `fixed bottom-24 right-8 px-6 py-3 rounded-2xl text-white text-sm font-medium shadow-2xl transition-all z-[100] transform translate-y-10 opacity-0 animate-toast-in`;
+            
+            const colors = {
+                success: 'bg-emerald-600',
+                error: 'bg-rose-600',
+                info: 'bg-indigo-600',
+                warning: 'bg-amber-600'
+            };
+            toast.classList.add(colors[type] || colors.info);
+            toast.innerHTML = `
+                <div class="flex items-center gap-3">
+                    <span class="text-lg">${type === 'success' ? '✅' : type === 'error' ? '❌' : 'ℹ️'}</span>
+                    <span>${message}</span>
+                </div>
+            `;
+            
+            document.body.appendChild(toast);
+            
+            // Animation via tailwind or custom CSS
+            setTimeout(() => {
+                toast.classList.remove('translate-y-10', 'opacity-0');
+            }, 10);
+            
+            setTimeout(() => {
+                toast.classList.add('translate-y-10', 'opacity-0');
+                setTimeout(() => toast.remove(), 300);
+            }, 3000);
+        }
+
         async function submitFeedback(isApprove = false) {
             if (!current_thread_id) {
-                alert("请先发起生成任务");
+                showToast("请先在 Agent 工作区发起生成任务", "warning");
                 return;
             }
             const feedbackInput = document.getElementById('agent-feedback');
+            const feedbackBtn = document.getElementById('agent-feedback-btn');
+            const approveBtn = document.getElementById('agent-approve-btn');
             const feedback = isApprove ? "批准" : feedbackInput.value;
-            if (!feedback && !isApprove) return;
+            
+            if (!feedback && !isApprove) {
+                showToast("请输入修改意见或点击批准", "warning");
+                return;
+            }
 
+            const originalFeedbackText = feedbackBtn.innerText;
+            const originalApproveText = approveBtn.innerText;
             const statusSpan = document.getElementById('agent-status');
-            statusSpan.innerText = isApprove ? "保存中..." : "打磨中...";
+            const workflowLogContainer = document.getElementById('workflow-log-container');
+            
+            feedbackBtn.disabled = true;
+            approveBtn.disabled = true;
+            feedbackBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            approveBtn.classList.add('opacity-50', 'cursor-not-allowed');
+            
+            if (isApprove) {
+                approveBtn.innerHTML = `<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> 正在存档...`;
+                statusSpan.innerText = "正在存档...";
+            } else {
+                feedbackBtn.innerHTML = `<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> 正在打磨...`;
+                statusSpan.innerText = "打磨请求已发送...";
+            }
+            if (window.lucide) lucide.createIcons();
 
             try {
+                // Add a separator to the tracker
+                workflowLogContainer.innerHTML += `<div class="text-amber-500/50 italic border-t border-white/5 pt-2 mt-2">新指令: "${feedback.slice(0, 30)}${feedback.length > 30 ? '...' : ''}"</div>`;
+                
                 const res = await fetch('/api/agent/feedback', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ feedback, thread_id: current_thread_id, agent_type: currentAgentType })
+                    body: JSON.stringify({ 
+                        feedback, 
+                        thread_id: current_thread_id, 
+                        agent_type: currentAgentType 
+                    })
                 });
-                const data = await res.json();
-                if (data.error) throw new Error(data.error);
-                
-                if (isApprove && currentAgentType !== 'writing') {
-                    alert("操作成功！数据已持久化。");
-                    location.reload();
-                } else if (isApprove && currentAgentType === 'writing') {
-                    alert("当前场次已存档！正在进入下一环节。");
-                    renderAgentState(data);
-                    feedbackInput.value = '';
-                } else {
-                    renderAgentState(data);
-                    feedbackInput.value = '';
-                }
+
+                if (!res.ok) throw new Error(await res.text());
+
+                await processStreamResponse(res, 
+                    (nodeUpdate) => {
+                        updateWorkflowLog(nodeUpdate.node, nodeUpdate.status_message, nodeUpdate.diagnostics);
+                        statusSpan.innerText = `执行中: ${nodeUpdate.node}`;
+                    },
+                    (finalState) => {
+                        renderAgentState(finalState);
+                        if (isApprove) {
+                            showToast("设定已成功持久化至系统档案", "success");
+                            feedbackInput.value = '';
+                        } else {
+                            showToast("迭代逻辑执行完毕", "success");
+                            feedbackInput.value = '';
+                        }
+                    }
+                );
+
             } catch (err) {
-                alert("操作失败: " + err.message);
+                console.error(err);
+                if (err.message.includes("找不到该会话的状态")) {
+                    showToast("会话已过期，请刷新页面重新发起任务", "error");
+                } else {
+                    showToast("迭代失败: " + err.message, "error");
+                }
             } finally {
                 statusSpan.innerText = "就绪";
+                feedbackBtn.disabled = false;
+                approveBtn.disabled = false;
+                feedbackBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                approveBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                feedbackBtn.innerHTML = originalFeedbackText;
+                approveBtn.innerHTML = originalApproveText;
+                if (window.lucide) lucide.createIcons();
             }
         }
 
@@ -1186,7 +1585,7 @@
                 const res = await fetch('/api/entity-drafts/approve', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ entity_name: name })
+                    body: JSON.stringify({ name: name })
                 });
                 const data = await res.json();
                 console.log("Approve response:", data);
@@ -1206,7 +1605,7 @@
                 const res = await fetch('/api/entity-drafts/reject', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ entity_name: name })
+                    body: JSON.stringify({ name: name })
                 });
                 const data = await res.json();
                 if (data.error) throw new Error(data.error);
@@ -1467,6 +1866,83 @@
             }
         }
 
+        // --- Mindmap & Export Functions ---
+        let mm = null;
+
+        async function showMindmap() {
+            const modal = document.getElementById('mindmap-modal');
+            const loading = document.getElementById('mindmap-loading');
+            
+            modal.classList.remove('hidden');
+            // Force reflow for transition
+            modal.offsetHeight; 
+            modal.classList.remove('opacity-0');
+            loading.classList.remove('hidden');
+            
+            try {
+                const response = await fetch('/api/lore/mindmap');
+                if (!response.ok) throw new Error("Failed to fetch mindmap data");
+                const markdown = await response.text();
+                
+                // Get markmap tools from window with robust fallbacks
+                const mm_global = window.markmap;
+                if (!mm_global) throw new Error("Markmap library not loaded correctly");
+
+                const { Markmap, loadCSS, loadJS } = mm_global;
+                const Transformer = mm_global.Transformer;
+                
+                if (!Transformer) {
+                    console.error("Markmap Transformer not found in global scope. Available:", Object.keys(mm_global));
+                    throw new Error("Unable to initialize Markmap Transformer");
+                }
+                
+                const transformer = new Transformer();
+                const { root, features } = transformer.transform(markdown);
+                const { styles, scripts } = transformer.getAssets();
+                
+                if (styles) loadCSS(styles);
+                if (scripts) loadJS(scripts, { getMarkmap: () => window.markmap });
+                
+                if (mm) {
+                    mm.setData(root);
+                } else {
+                    mm = Markmap.create('#markmap-svg', {
+                        autoFit: true,
+                        duration: 500,
+                        paddingX: 16,
+                        maxWidth: 300,
+                        color: (node) => {
+                            const colors = ['#22d3ee', '#3b82f6', '#8b5cf6', '#d946ef', '#f43f5e'];
+                            return colors[node.depth % colors.length];
+                        }
+                    }, root);
+                }
+                
+                setTimeout(() => mm.fit(), 100);
+                
+            } catch (err) {
+                console.error('Mindmap Error:', err);
+                showStatus('无法加载脑际全息拓扑: ' + err.message, 'error');
+                closeMindmap();
+            } finally {
+                loading.classList.add('hidden');
+                if (window.lucide) lucide.createIcons();
+            }
+        }
+
+        function closeMindmap() {
+            const modal = document.getElementById('mindmap-modal');
+            modal.classList.add('opacity-0');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+            }, 300);
+        }
+
+        function downloadOPML() {
+            window.location.href = '/api/lore/export/opml';
+            showStatus('正在生成并导出 OPML 设定文件...', 'info');
+        }
+
         // --- Dashboard Initialization ---
         async function initDashboard() {
             console.log("[DASHBOARD] Starting initialization...");
@@ -1474,18 +1950,13 @@
                 // 1. Initial Icon Render
                 if (window.lucide) {
                     lucide.createIcons();
-                    console.log("[DASHBOARD] Lucide icons created.");
                 }
 
-                // 2. Fetch Literature Archive
-                console.log("[DASHBOARD] Fetching lore...");
-                await fetchLore();
-                console.log("[DASHBOARD] Lore fetch complete.");
+                // 2. Fetch Literature Archive (Tree mode)
+                await fetchLoreTree();
 
                 // 3. Pre-fetch Templates
-                console.log("[DASHBOARD] Fetching templates...");
                 await fetchTemplates();
-                console.log("[DASHBOARD] Templates fetch complete.");
 
                 // 4. Initial Health and Logs
                 fetchHealth();
@@ -1504,21 +1975,9 @@
             }
         }
 
-        // Handle tab switching for templates specifically
-        const originalSwitchTab = switchTab;
-        window.switchTab = function(tabId) {
-            console.log("[DASHBOARD] Switching to tab:", tabId);
-            if (typeof originalSwitchTab === 'function') originalSwitchTab(tabId);
-            if (tabId === 'template' && Object.keys(allTemplates).length === 0) {
-                fetchTemplates();
-            }
-        };
-
         // Bind static elements
-        const saveTemplateBtn = document.getElementById('save-template-btn');
-        if (saveTemplateBtn) saveTemplateBtn.onclick = saveTemplate;
-        const deleteTemplateBtn = document.getElementById('delete-template-btn');
-        if (deleteTemplateBtn) deleteTemplateBtn.onclick = deleteCategory;
+        if (document.getElementById('save-template-btn')) document.getElementById('save-template-btn').onclick = saveTemplate;
+        if (document.getElementById('delete-template-btn')) document.getElementById('delete-template-btn').onclick = deleteCategory;
 
         // Start everything
         initDashboard();

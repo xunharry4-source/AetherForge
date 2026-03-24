@@ -61,6 +61,7 @@ class OutlineState(TypedDict):
     grounding_sources: List[dict] # 绑定的源素材索引
     scratchpad: list[str]  # Autoresearch 草稿本
     defense_log: str       # 结构化防御日志
+    llm_interactions: dict # [诊断] 存储各节点的 LLM 入参与原始出参
 
 # ==========================================
 # Nodes Implementation
@@ -181,7 +182,13 @@ Schema: {schema}
         "scratchpad": sp,
         "iterations": int(curr_iterations) + 1,
         "mode": "chapter" if is_chapter_detail else "book",
-        "status_message": f"模式: {'章节细化' if is_chapter_detail else '全局策划'}。正在进入结构化防御审查。"
+        "status_message": f"模式: {'章节细化' if is_chapter_detail else '全局策划'}。正在进入结构化防御审查。",
+        "llm_interactions": {
+            "planner": {
+                "prompt": prompt,
+                "raw_output": res.content
+            }
+        }
     }
 
 import pydantic
@@ -270,7 +277,13 @@ def outline_critic(state: OutlineState):
             "review_log": audit_data.get("audit_log", ""),
             "is_approved": is_ok,
             "audit_count": int(count) + 1,
-            "status_message": "剧本审计完成。"
+            "status_message": "剧本审计完成。",
+            "llm_interactions": {
+                "critic": {
+                    "prompt": prompt,
+                    "raw_output": res.content
+                }
+            }
         }
     except Exception:
         return {"is_approved": False, "audit_count": int(state.get('audit_count', 0)) + 1, "status_message": "审计解析异常"}
@@ -373,7 +386,13 @@ def grounding_audit_node(state: OutlineState):
         return {
             "review_log": new_log,
             "is_approved": is_grounded and state.get('is_approved', False), # 必须同时通过逻辑审计
-            "status_message": f"素材锚定审计完成。置信分: {audit_res.get('valid_score')}/100"
+            "status_message": f"素材锚定审计完成。置信分: {audit_res.get('valid_score')}/100",
+            "llm_interactions": {
+                "grounding_audit": {
+                    "prompt": prompt,
+                    "raw_output": res.content
+                }
+            }
         }
     except Exception as e:
         print(f"[Grounding Audit] Error: {e}")

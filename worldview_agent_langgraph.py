@@ -64,6 +64,7 @@ class AgentState(TypedDict):
     defense_log: str       # 防御节点产生的错误信息
     research_confidence: float # 当前设定的内部自信度 (0.0 - 1.0)
     extracted_facts: str   # 研究所得的关键推演事实
+    llm_interactions: dict  # [诊断] 存储各节点的 LLM 入参与原始出参
 
 # ==========================================
 # 0-4 Architecture & Category Specific Logic
@@ -186,7 +187,13 @@ TASK:
             "research_confidence": validated.confidence_score,
             "extracted_facts": validated.extracted_facts,
             "scratchpad": new_scratchpad[-5:], # 仅保留最近5轮思考避免上下文爆炸
-            "status_message": f"Autoresearch 正在推演逻辑边界... 当前置信度: {validated.confidence_score}"
+            "status_message": f"Autoresearch 正在推演逻辑边界... 当前置信度: {validated.confidence_score}",
+            "llm_interactions": {
+                "autoresearch": {
+                    "prompt": prompt,
+                    "raw_output": res.content
+                }
+            }
         }
     except Exception as e:
         print(f"[Autoresearch] 解析失败: {e}")
@@ -324,7 +331,13 @@ TASK: 请完成设定提案。必须输出为 JSON 格式。
         "category": category,
         "iterations": curr_iterations + 1, 
         "scratchpad": current_scratchpad,
-        "status_message": f"[{category_info['title']}] 提议已生成并进入结构化防御层 (Defense)..."
+        "status_message": f"[{category_info['title']}] 提议已生成并进入结构化防御层 (Defense)...",
+        "llm_interactions": {
+            "generator": {
+                "prompt": full_prompt,
+                "raw_output": res.content
+            }
+        }
     }
 
 
@@ -431,7 +444,13 @@ def reviewer_node(state: AgentState):
             "review_log": audit_data.get("audit_log", res.content), 
             "is_approved": is_ok,
             "audit_count": count + 1,
-            "status_message": msg
+            "status_message": msg,
+            "llm_interactions": {
+                "reviewer": {
+                    "prompt": full_prompt,
+                    "raw_output": res.content
+                }
+            }
         }
     except Exception as e:
         print(f"[DEBUG] Reviewer parsing error: {e}")

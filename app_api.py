@@ -8,7 +8,7 @@ API 入口模块 (App API) - PGA 小说创作引擎后端服务
 3. 文献检索与管理: 提供统一的资料搜索和模板存取接口。
 4. 人机交互路由: 将用户反馈正确引导至对应的 Agent 暂停点。
 """
-from flask import Flask, request, jsonify, render_template, send_from_directory, send_file
+from flask import Flask, request, jsonify, render_template, send_from_directory, send_file, Response
 import os
 import json
 import traceback
@@ -65,7 +65,7 @@ CONFIG = get_config()
 
 # --- Initialize Observability Stack ---
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='static', static_url_path='/static')
 CORS(app)  # Enable CORS for all routes securely
 
 # 初始化 Sentry
@@ -233,10 +233,9 @@ def index():
 def serve_assets(filename):
     return send_from_directory('assets', filename)
 
-@app.route('/api/lore', methods=['GET'])
-def get_lore():
+def get_all_lore_items():
+    """Helper to aggregate all lore from various JSON/JSONL databases."""
     all_docs = []
-
     try:
         # 1. Worldview (JSONL)
         if os.path.exists('worldview_db.json'):
@@ -246,11 +245,11 @@ def get_lore():
                     try:
                         item = json.loads(line)
                         all_docs.append({
-                            "id": item.get("doc_id"),
+                            "id": item.get("doc_id") or item.get("id"),
                             "type": "worldview",
                             "name": item.get("name") or item.get("query"),
                             "content": item.get("content"),
-                            "category": item.get("category", "Worldview"),
+                            "category": item.get("path") or item.get("category", "Worldview"),
                             "timestamp": item.get("timestamp", "N/A")
                         })
                     except: pass
@@ -261,18 +260,17 @@ def get_lore():
                 with open('outlines_db.json', 'r', encoding='utf-8') as f:
                     content = f.read().strip()
                     if content:
-                        items = json.loads(content)
-                        for item in items:
+                        data = json.loads(content)
+                        for item in data:
                             all_docs.append({
-                                "id": item.get("id"),
+                                "id": item.get("outline_id") or item.get("id"),
                                 "type": "outline",
-                                "name": f"大纲: {item.get('query', '未命名')[:20]}...",
-                                "content": item.get("proposal") or json.dumps(item.get("outline", {}), ensure_ascii=False),
-                                "category": "Outline",
-                                "timestamp": item.get("timestamp", "刚刚")
+                                "name": item.get("title") or item.get("query") or "未命名大纲",
+                                "content": item.get("summary") or item.get("proposal"),
+                                "category": f"Outlines > {item.get('book_title') or 'Novel'}",
+                                "timestamp": item.get("timestamp", "N/A")
                             })
-            except Exception as e:
-                print(f"[API ERROR] Failed to load outlines: {e}")
+            except: pass
 
         # 3. Prose (JSONL)
         if os.path.exists('prose_db.json'):
@@ -282,20 +280,116 @@ def get_lore():
                     try:
                         item = json.loads(line)
                         all_docs.append({
-                            "id": item.get("scene_id") or item.get("id"),
+                            "id": item.get("prose_id") or item.get("scene_id") or item.get("id"),
                             "type": "prose",
-                            "name": f"正文: {item.get('scene_title')}",
+                            "name": item.get("title") or item.get("scene_title") or item.get("query"),
                             "content": item.get("content"),
-                            "category": "Prose",
-                            "timestamp": item.get("timestamp", "刚刚")
+                            "category": "Proses",
+                            "timestamp": item.get("timestamp", "N/A")
                         })
                     except: pass
+                    
     except Exception as e:
-        print(f"[API ERROR] Global get_lore error: {e}")
+        print(f"[API ERROR] get_all_lore_items: {e}")
+        
+    all_docs.reverse() # Show newest first
+    return all_docs
 
-    # To satisfy type checkers, reverse using standard techniques
-    all_docs.reverse()
-    return jsonify(all_docs)
+@app.route('/api/lore', methods=['GET'])
+def get_lore():
+    return jsonify(get_all_lore_items())
+
+@app.route('/api/lore/tree', methods=['GET'])
+def get_lore_tree():
+    """Returns lore organized in a tree structure by category."""
+    all_docs = get_all_lore_items()
+    tree_data = {"name": "Root", "children": {}, "entries": []}
+    
+    for doc in all_docs:
+        cat_path = doc.get("category", "Uncategorized")
+        parts = [p.strip() for p in cat_path.split(">")]
+        
+        curr = tree_data
+        for part in parts:
+            if part not in curr["children"]:
+                curr["children"][part] = {"name": part, "children": {}, "entries": []}
+            curr = curr["children"][part]
+        
+        curr["entries"].append(doc)
+    
+    def format_node(node):
+        return {
+            "name": node["name"],
+            "children": [format_node(c) for c in node["children"].values()],
+            "entries": node["entries"]
+        }
+    
+    return jsonify(format_node(tree_data))
+
+@app.route('/api/lore/mindmap', methods=['GET'])
+def get_lore_mindmap():
+    """Returns lore in Markdown format for mindmap visualization."""
+    all_docs = get_all_lore_items()
+    # Build internal tree first
+    tree_data = {"name": "万象星际视角", "children": {}, "entries": []}
+    for doc in all_docs:
+        cat_path = doc.get("category", "Uncategorized")
+        parts = [p.strip() for p in cat_path.split(">")]
+        curr = tree_data
+        for part in parts:
+            if part not in curr["children"]:
+                curr["children"][part] = {"name": part, "children": {}, "entries": []}
+            curr = curr["children"][part]
+        curr["entries"].append(doc)
+
+    def to_markdown(node, level=0):
+        indent = "  " * level
+        md = f"{indent}- {node['name']}\n"
+        for child in node["children"].values():
+            md += to_markdown(child, level + 1)
+        for entry in node["entries"]:
+            md += f"{indent}  - {entry['name']}\n"
+        return md
+
+    return to_markdown(tree_data)
+
+@app.route('/api/lore/export/opml', methods=['GET'])
+def export_lore_opml():
+    """Exports all lore as an OPML file."""
+    all_docs = get_all_lore_items()
+    tree_data = {"name": "PGA Worldview", "children": {}, "entries": []}
+    for doc in all_docs:
+        cat_path = doc.get("category", "Uncategorized")
+        parts = [p.strip() for p in cat_path.split(">")]
+        curr = tree_data
+        for part in parts:
+            if part not in curr["children"]:
+                curr["children"][part] = {"name": part, "children": {}, "entries": []}
+            curr = curr["children"][part]
+        curr["entries"].append(doc)
+
+    def to_opml_outline(node):
+        safe_name = node["name"].replace('"', '&quot;').replace('<', '&lt;').replace('>', '&gt;')
+        res = f'<outline text="{safe_name}">\n'
+        for child in node["children"].values():
+            res += to_opml_outline(child)
+        for entry in node["entries"]:
+            safe_entry_name = entry["name"].replace('"', '&quot;').replace('<', '&lt;').replace('>', '&gt;')
+            # We can put content in _note or as a child node
+            res += f'  <outline text="{safe_entry_name}" />\n'
+        res += '</outline>\n'
+        return res
+
+    opml_head = '<?xml version="1.0" encoding="UTF-8"?>\n<opml version="2.0">\n  <head><title>PGA Worldview Export</title></head>\n  <body>\n'
+    opml_body = to_opml_outline(tree_data)
+    opml_foot = '  </body>\n</opml>'
+    
+    from flask import Response
+    return Response(
+        opml_head + opml_body + opml_foot,
+        mimetype='text/xml',
+        headers={'Content-Disposition': 'attachment;filename=worldview_export.opml'}
+    )
 
 @app.route('/api/archive/update', methods=['POST'])
 def update_archive():
@@ -527,32 +621,31 @@ def agent_query():
             config["callbacks"] = [langfuse_handler]
             print(f"[OBSERVABILITY] LangFuse tracing enabled for {agent_type}.")
 
-        output = agent_app.invoke(input_state, config=config)
-        
-        # 尝试上报 Token 消耗 (如果 output 中包含元数据)
-        if isinstance(output, dict) and "metadata" in output and "usage_metadata" in output["metadata"]:
-            usage = output["metadata"]["usage_metadata"]
-            report_token_usage(
-                model=CONFIG.get("DEFAULT_MODEL", "gemini-flash"),
-                prompt_tokens=usage.get("prompt_token_count", 0),
-                completion_tokens=usage.get("candidates_token_count", 0),
-                agent_name=agent_type
-            )
-        # 如果 graph 在 human_node 被 interrupt 暂停，output 里不包含最终结果
-        # 需要从 checkpointer 获取当前 state
-        state_snapshot = agent_app.get_state(config)
-        current_state = dict(state_snapshot.values)
-        # 检查是否有 interrupt 值（说明 graph 暂停了）
-        if state_snapshot.next:
-            current_state["status_message"] = current_state.get("status_message", "设定已就绪，等待审核...")
-        return jsonify(current_state)
+        def generate_query():
+            try:
+                # 使用 stream(updates) 获取节点级别的更新
+                for event in agent_app.stream(input_state, config=config, stream_mode="updates"):
+                    for node_name, node_data in event.items():
+                        yield json.dumps({
+                            "type": "node_update",
+                            "node": node_name,
+                            "status_message": str(node_data.get("status_message", f"节点 {node_name} 已完成")),
+                            "diagnostics": node_data.get("llm_interactions")
+                        }) + "\n"
+                
+                # 最后发送完整状态
+                final_snapshot = agent_app.get_state(config)
+                final_state = dict(final_snapshot.values)
+                final_state["type"] = "final_state"
+                final_state["thread_id"] = thread_id
+                yield json.dumps(final_state) + "\n"
+                
+            except Exception as e:
+                # 429 自动换 key 重试逻辑 (流式模式下较难重试，这里先仅报错)
+                yield json.dumps({"type": "error", "error": str(e)}) + "\n"
+
+        return Response(generate_query(), mimetype='application/x-ndjson')
     except Exception as e:
-        if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
-             if rotate_api_key():
-                 print("[API] Rotated key and retrying Agent invoke...")
-                 output = agent_app.invoke(input_state, config=config)
-                 state_snapshot = agent_app.get_state(config)
-                 return jsonify(dict(state_snapshot.values))
         raise e # 继续抛给 global handler
 
 @app.route('/api/agent/feedback', methods=['POST'])
@@ -570,21 +663,41 @@ def agent_feedback():
     print(f"\n[API] Resuming Agent '{agent_type}' for thread '{thread_id}'")
     print(f"[API] Feedback Received: '{feedback}'")
     try:
+        # 检查当前状态，看是否真的在等待 interrupt
+        state_snapshot = agent_app.get_state(config)
+        if not state_snapshot.values:
+             return jsonify({"error": "找不到该会话的状态。可能服务器已重启或会话已过期，请重新在大纲/正文 Agent 中发起任务。"}), 400
+        
         from langgraph.types import Command
-        # 再次确认回调注入
         langfuse_handler = get_langfuse_callback()
         if langfuse_handler:
             config["callbacks"] = [langfuse_handler]
 
-        # 使用 Command(resume=feedback) 恢复被 interrupt 暂停的 graph
-        output = agent_app.invoke(Command(resume=feedback), config=config)
-        # 获取恢复后的最新 state
-        state_snapshot = agent_app.get_state(config)
-        current_state = dict(state_snapshot.values)
-        if state_snapshot.next:
-            current_state["status_message"] = current_state.get("status_message", "设定已更新，等待审核...")
-        return jsonify(current_state)
+        def generate_feedback():
+            try:
+                print(f"[API] Resuming Command(resume={feedback[:20]}...)")
+                # 使用 Command(resume=...) 配合 stream
+                for event in agent_app.stream(Command(resume=feedback), config=config, stream_mode="updates"):
+                    for node_name, node_data in event.items():
+                        yield json.dumps({
+                            "type": "node_update",
+                            "node": node_name,
+                            "status_message": str(node_data.get("status_message", f"节点 {node_name} 已完成")),
+                            "diagnostics": node_data.get("llm_interactions")
+                        }) + "\n"
+                
+                # 最后发送更新后的完整状态
+                new_state = agent_app.get_state(config)
+                final_state = dict(new_state.values)
+                final_state["type"] = "final_state"
+                yield json.dumps(final_state) + "\n"
+                
+            except Exception as e:
+                yield json.dumps({"type": "error", "error": str(e)}) + "\n"
+
+        return Response(generate_feedback(), mimetype='application/x-ndjson')
     except Exception as e:
+        raise e
         if "429" in str(e) or "RESOURCE_EXHAUSTED" in str(e):
              if rotate_api_key():
                  from langgraph.types import Command
