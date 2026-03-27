@@ -11,6 +11,9 @@ API 入口模块 (App API) - PGA 小说创作引擎后端服务
 from flask import Flask, request, jsonify, render_template, send_from_directory, send_file, Response
 import os
 import json
+import re
+import uuid
+import time
 import traceback
 import shutil
 from typing import Any, Dict, List
@@ -50,8 +53,12 @@ from lore_utils import (
     add_new_category,
     get_draft_entities,
     approve_draft_entity,
+    batch_approve_draft_entities,
+    batch_reject_draft_entities,
     get_langfuse_callback,
-    report_token_usage
+    report_token_usage,
+    get_db_path,
+    delete_lore_vector
 )
 from worldview_agent_langgraph import app as worldview_app
 from novel_outline_agent_langgraph import app as outline_app
@@ -59,6 +66,7 @@ from writing_execution_agent_langgraph import app as writing_app
 from router_agent_langgraph import app as router_app
 from worldview_import_agent import app as import_app
 from config_utils import get_config
+from batch_writer_utils import BatchWriter
 
 # Load configuration for observability
 CONFIG = get_config()
@@ -210,8 +218,8 @@ def create_new_category():
 
 # 用于存储大纲以便写作 Agent 使用 (模拟 MongoDB)
 def get_outline_by_id(outline_id):
-    if not os.path.exists('outlines_db.json'): return None
-    with open('outlines_db.json', 'r', encoding='utf-8') as f:
+    if not os.path.exists(get_db_path("outlines_db.json")): return None
+    with open(get_db_path("outlines_db.json"), 'r', encoding='utf-8') as f:
         for line in f:
             try:
                 data = json.loads(line)
@@ -238,8 +246,8 @@ def get_all_lore_items():
     all_docs = []
     try:
         # 1. Worldview (JSONL)
-        if os.path.exists('worldview_db.json'):
-            with open('worldview_db.json', 'r', encoding='utf-8') as f:
+        if os.path.exists(get_db_path("worldview_db.json")):
+            with open(get_db_path("worldview_db.json"), 'r', encoding='utf-8') as f:
                 for line in f:
                     if not line.strip(): continue
                     try:
@@ -255,9 +263,9 @@ def get_all_lore_items():
                     except: pass
 
         # 2. Outlines (JSON Array)
-        if os.path.exists('outlines_db.json'):
+        if os.path.exists(get_db_path("outlines_db.json")):
             try:
-                with open('outlines_db.json', 'r', encoding='utf-8') as f:
+                with open(get_db_path("outlines_db.json"), 'r', encoding='utf-8') as f:
                     content = f.read().strip()
                     if content:
                         data = json.loads(content)
@@ -273,8 +281,8 @@ def get_all_lore_items():
             except: pass
 
         # 3. Prose (JSONL)
-        if os.path.exists('prose_db.json'):
-            with open('prose_db.json', 'r', encoding='utf-8') as f:
+        if os.path.exists(get_db_path("prose_db.json")):
+            with open(get_db_path("prose_db.json"), 'r', encoding='utf-8') as f:
                 for line in f:
                     if not line.strip(): continue
                     try:
@@ -285,6 +293,31 @@ def get_all_lore_items():
                             "name": item.get("title") or item.get("scene_title") or item.get("query"),
                             "content": item.get("content"),
                             "category": "Proses",
+                            "timestamp": item.get("timestamp", "N/A")
+                        })
+                    except: pass
+                    
+        # 4. Entity Drafts (JSONL) - Pending review but part of the conceptual relationship
+        if os.path.exists(get_db_path("entity_drafts_db.json")):
+            with open(get_db_path("entity_drafts_db.json"), 'r', encoding='utf-8') as f:
+                for line in f:
+                    if not line.strip(): continue
+                    try:
+                        item = json.loads(line)
+                        # Build content from source_context + entity_card (drafts don't have description/proposal)
+                        draft_content_parts = []
+                        if item.get('source_context'):
+                            draft_content_parts.append(f"**来源上下文**: {item.get('source_context')}")
+                        if item.get('entity_card'):
+                            draft_content_parts.append(f"**设定卡**:\n```json\n{json.dumps(item.get('entity_card'), ensure_ascii=False, indent=2)}\n```")
+                        draft_content = '\n\n'.join(draft_content_parts) if draft_content_parts else None
+                        
+                        all_docs.append({
+                            "id": f"draft_{item.get('name')}",
+                            "type": "draft",
+                            "name": item.get('name'),
+                            "content": draft_content,
+                            "category": f"Drafts > {item.get('category', 'Uncategorized')}",
                             "timestamp": item.get("timestamp", "N/A")
                         })
                     except: pass
@@ -325,16 +358,16 @@ def get_lore_tree():
         }
     
     return jsonify(format_node(tree_data))
-
 @app.route('/api/lore/mindmap', methods=['GET'])
 def get_lore_mindmap():
     """Returns lore in Markdown format for mindmap visualization."""
     all_docs = get_all_lore_items()
     # Build internal tree first
-    tree_data = {"name": "万象星际视角", "children": {}, "entries": []}
+    tree_data = {"name": "PGA 万象星际全息关系图", "children": {}, "entries": []}
     for doc in all_docs:
         cat_path = doc.get("category", "Uncategorized")
-        parts = [p.strip() for p in cat_path.split(">")]
+        # Split by > or /
+        parts = [p.strip() for p in re.split(r'[>/]', cat_path)]
         curr = tree_data
         for part in parts:
             if part not in curr["children"]:
@@ -343,15 +376,74 @@ def get_lore_mindmap():
         curr["entries"].append(doc)
 
     def to_markdown(node, level=0):
-        indent = "  " * level
-        md = f"{indent}- {node['name']}\n"
+        # Use # hierarchy for better markmap rendering
+        prefix = "#" * (level + 1)
+        md = f"{prefix} {node['name']}\n\n"
         for child in node["children"].values():
             md += to_markdown(child, level + 1)
         for entry in node["entries"]:
-            md += f"{indent}  - {entry['name']}\n"
+            # Sanitize name
+            name = entry['name'].replace('\\', '').replace('`', '')
+            md += f"{'#' * (level + 2)} {name}\n\n"
         return md
 
     return to_markdown(tree_data)
+
+@app.route('/api/lore/entity-graph/<doc_id>', methods=['GET'])
+def get_entity_graph(doc_id):
+    """Returns a local relationship graph around a specific entity."""
+    all_docs = get_all_lore_items()
+    target = next((d for d in all_docs if d['id'] == doc_id), None)
+    if not target:
+        # Try finding by name if ID in URL is actually a name (for deep links)
+        target = next((d for d in all_docs if d['name'] == doc_id), None)
+        
+    if not target:
+        return jsonify({"nodes": [], "links": []}), 404
+    
+    # Base nodes (the target itself)
+    nodes = [{"id": target['id'], "name": target['name'], "type": target['type'], "val": 30}]
+    links = []
+    seen_nodes = {target['id']}
+    
+    # 1. Direct Mentions Linkage
+    target_name = target['name'].lower()
+    for doc in all_docs:
+        if doc['id'] == target['id']: continue
+        
+        doc_content = (doc.get('content') or "").lower()
+        doc_name = doc['name'].lower()
+        
+        is_linked = False
+        link_type = "mention"
+        
+        # Bi-directional mention check
+        if target_name in doc_content or target_name in doc_name:
+            is_linked = True
+        elif doc_name in (target.get('content') or "").lower():
+            is_linked = True
+            
+        if is_linked:
+            if doc['id'] not in seen_nodes:
+                nodes.append({"id": doc['id'], "name": doc['name'], "type": doc['type'], "val": 15})
+                seen_nodes.add(doc['id'])
+            
+            links.append({
+                "source": target['id'], 
+                "target": doc['id'], 
+                "type": link_type,
+                "value": 2
+            })
+            
+    # Limit number of connections for UI performance (top 20)
+    if len(nodes) > 21:
+        nodes = nodes[:21]
+    
+    # Ensure links only refer to existing nodes
+    valid_node_ids = {n['id'] for n in nodes}
+    links = [l for l in links if l['source'] in valid_node_ids and l['target'] in valid_node_ids]
+
+    return jsonify({"nodes": nodes, "links": links})
 
 @app.route('/api/lore/export/opml', methods=['GET'])
 def export_lore_opml():
@@ -393,76 +485,35 @@ def export_lore_opml():
 
 @app.route('/api/archive/update', methods=['POST'])
 def update_archive():
+    """更新或创建存档条目 (Worldview, Outline, Prose)。"""
     data = request.json or {}
     item_id = data.get('id')
     item_type = data.get('type')
     new_content = data.get('content')
-    
-    # Diagnostic logging
-    print(f"[API UPDATE] Received: id={item_id}, type={item_type}, content_len={len(new_content) if new_content is not None else 'None'}")
+    new_name = data.get('name')
+    category = data.get('category')
     
     if not item_id or not item_type or new_content is None:
         return jsonify({
-            "error": "Missing id, type, or content",
+            "error": "Missing required fields",
             "received": {"id": item_id, "type": item_type, "has_content": new_content is not None}
         }), 400
     
     filename = {
-        'worldview': 'worldview_db.json',
-        'outline': 'outlines_db.json',
-        'prose': 'prose_db.json'
+        'worldview': get_db_path("worldview_db.json"),
+        'outline': get_db_path("outlines_db.json"),
+        'prose': get_db_path("prose_db.json"),
+        'entity-draft': get_db_path("entity_drafts_db.json"),
     }.get(str(item_type))
     
-    if not filename or not os.path.exists(filename):
-        return jsonify({"error": f"Invalid type or file not found: {item_type}"}), 400
-    
-    updated = False
-    
-    # CASE 1: JSON Array (Outline)
-    if item_type == 'outline':
-        try:
-            with open(filename, 'r', encoding='utf-8') as f:
-                content = f.read().strip()
-                items = json.loads(content) if content else []
-            
-            for item in items:
-                if str(item.get('id')) == str(item_id):
-                    import datetime as _dt
-                    old_content = item.get('proposal', '')
-                    # Update proposal or whole outline structure if needed
-                    # If content starts with {, assume it's the full outline JSON
-                    if new_content.strip().startswith('{'):
-                        try:
-                            # if it's outline dict, fallback to stringifying old outline
-                            old_content = json.dumps(item.get('outline', {}), ensure_ascii=False)
-                            item['outline'] = json.loads(new_content)
-                        except:
-                            item['proposal'] = new_content
-                    else:
-                        item['proposal'] = new_content
-                        
-                    if old_content and old_content != new_content:
-                        history = item.get('history', [])
-                        history.append({
-                            "timestamp": _dt.datetime.now().isoformat(),
-                            "content": old_content
-                        })
-                        if len(history) > 10:
-                            history = history[-10:]
-                        item['history'] = history
-                        
-                    updated = True
-                    break
-            
-            if updated:
-                with open(filename, 'w', encoding='utf-8') as f:
-                    json.dump(items, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            return jsonify({"error": f"Failed to update Outline JSON: {e}"}), 500
+    if not filename:
+        return jsonify({"error": f"Invalid type: {item_type}"}), 400
 
-    # CASE 2: JSONL (Worldview, Prose)
-    else:
-        new_lines = []
+    updated = False
+    new_lines = []
+    
+    # Process existing file if it exists
+    if os.path.exists(filename):
         try:
             with open(filename, 'r', encoding='utf-8') as f:
                 for line in f:
@@ -474,45 +525,155 @@ def update_archive():
                             current_id = item.get('doc_id')
                         elif item_type == 'prose':
                             current_id = item.get('scene_id') or item.get('id')
+                        elif item_type == 'outline':
+                            current_id = item.get('id') or item.get('outline_id')
+                        elif item_type == 'entity-draft':
+                            current_id = item.get('id') or item.get('doc_id')
                         
                         if str(current_id) == str(item_id):
                             import datetime as _dt
-                            old_content = item.get('content', '')
-                            if old_content and old_content != new_content:
-                                history = item.get('history', [])
-                                history.append({
-                                    "timestamp": _dt.datetime.now().isoformat(),
-                                    "content": old_content
-                                })
-                                if len(history) > 10:
-                                    history = history[-10:]
-                                item['history'] = history
-                            item['content'] = new_content
-                            line = json.dumps(item, ensure_ascii=False) + '\n'
+                            # For outline, if new_content is JSON, update the 'outline' field
+                            if item_type == 'outline' and new_content.strip().startswith('{'):
+                                try:
+                                    item['outline'] = json.loads(new_content)
+                                    if 'title' in item['outline']:
+                                        item['name'] = item['outline']['title']
+                                except json.JSONDecodeError:
+                                    item['content'] = new_content
+                            else:
+                                item['content'] = new_content
+                                
+                            item['last_modified'] = _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                            if new_name: item['name'] = new_name
+                            if category: item['category'] = category
+                            
+                            new_lines.append(json.dumps(item, ensure_ascii=False) + '\n')
                             updated = True
                         else:
                             if not line.endswith('\n'): line += '\n'
+                            new_lines.append(line)
                     except:
                         if not line.endswith('\n'): line += '\n'
-                    new_lines.append(line)
-            
-            if updated:
-                with open(filename, 'w', encoding='utf-8') as f:
-                    f.writelines(new_lines)
+                        new_lines.append(line)
         except Exception as e:
-            return jsonify({"error": f"Failed to update JSONL: {e}"}), 500
+            return jsonify({"error": f"Failed to read file: {e}"}), 500
 
     if updated:
-        # 同步到 MongoDB, ChromaDB 和 SKILL
+        # Write back updated lines
         try:
-            from lore_utils import sync_archive_to_all_stores
-            sync_archive_to_all_stores(item_id, item_type, new_content, name=data.get('name'))
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.writelines(new_lines)
+            
+            # 同步更新
+            try:
+                from lore_utils import sync_archive_to_all_stores
+                sync_archive_to_all_stores(item_id, item_type, new_content, name=new_name)
+            except Exception as e:
+                print(f"[API] Sync error: {e}")
+                
+            return jsonify({"status": "success", "message": "Item updated"})
         except Exception as e:
-            print(f"[API] Sync error: {e}")
+            return jsonify({"error": f"Failed to write updates: {e}"}), 500
 
-        return jsonify({"status": "success"})
-    else:
-        return jsonify({"error": f"Item {item_id} not found in {item_type}"}), 404
+    if not updated:
+        # Create new entry (Upsert)
+        try:
+            import datetime as _dt
+            new_item = {
+                "name": new_name or item_id,
+                "content": new_content,
+                "last_modified": _dt.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            if item_type == 'worldview':
+                new_item["doc_id"] = item_id
+                new_item["category"] = category or "未分类"
+            elif item_type == 'prose':
+                new_item["scene_id"] = item_id
+            elif item_type == 'outline':
+                new_item["outline_id"] = item_id
+                if new_content.strip().startswith('{'):
+                    try:
+                        new_item['outline'] = json.loads(new_content)
+                        if 'title' in new_item['outline']:
+                            new_item['name'] = new_item['outline']['title']
+                    except: pass
+            elif item_type == 'entity-draft':
+                new_item["id"] = item_id
+                new_item["status"] = data.get("status", "pending")
+            
+            with open(filename, 'a', encoding='utf-8') as f:
+                f.write(json.dumps(new_item, ensure_ascii=False) + '\n')
+            
+            # 同步新条目
+            try:
+                from lore_utils import sync_archive_to_all_stores
+                sync_archive_to_all_stores(item_id, item_type, new_content, name=new_item['name'])
+            except Exception as e:
+                print(f"[API] Sync error: {e}")
+                
+            return jsonify({"status": "success", "message": "Item created"})
+        except Exception as e:
+            return jsonify({"error": f"Failed to create item: {e}"}), 500
+
+@app.route('/api/archive/delete', methods=['DELETE'])
+def delete_archive():
+    """从数据库中永久删除条目。"""
+    data = request.json or {}
+    item_id = data.get('id')
+    item_type = data.get('type')
+    
+    if not item_id or not item_type:
+        return jsonify({"error": "Missing id or type"}), 400
+        
+    filename = {
+        'worldview': get_db_path("worldview_db.json"),
+        'outline': get_db_path("outlines_db.json"),
+        'prose': get_db_path("prose_db.json"),
+        'entity-draft': get_db_path("entity_drafts_db.json"),
+    }.get(str(item_type))
+    
+    if not filename or not os.path.exists(filename):
+        return jsonify({"error": f"Invalid type or file not found: {item_type}"}), 400
+        
+    updated = False
+    new_lines = []
+    
+    try:
+        with open(filename, 'r', encoding='utf-8') as f:
+            for line in f:
+                if not line.strip(): continue
+                try:
+                    item = json.loads(line)
+                    curr_id = item.get('doc_id') or item.get('scene_id') or item.get('id') or item.get('outline_id')
+                    
+                    if str(curr_id) == str(item_id):
+                        updated = True
+                        continue  # Skip this line to delete
+                    
+                    if not line.endswith('\n'): line += '\n'
+                    new_lines.append(line)
+                except:
+                    if not line.endswith('\n'): line += '\n'
+                    new_lines.append(line)
+        
+        if updated:
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.writelines(new_lines)
+            
+            # 同步删除向量索引
+            try:
+                from lore_utils import delete_lore_vector
+                delete_lore_vector(item_id)
+            except Exception as e:
+                print(f"[API] Vector delete error: {e}")
+            
+            return jsonify({"status": "success", "message": f"Item {item_id} deleted"})
+        else:
+            return jsonify({"error": f"Item {item_id} not found"}), 404
+            
+    except Exception as e:
+        return jsonify({"error": f"Deletion failed: {e}"}), 500
+
 
 @app.route('/api/agent/query', methods=['POST'])
 def agent_query():
@@ -520,25 +681,22 @@ def agent_query():
     query = data.get('query', '')
     thread_id = data.get('thread_id', 'default_user')
     agent_type = data.get('agent_type', 'worldview')
-    
+    resume_input = data.get('resume_input')
+
     agent_app = AGENTS.get(agent_type)
     if not agent_app:
-            return jsonify({"error": f"Agent '{agent_type}' 未就绪"}), 500
+        return jsonify({"error": f"Agent '{agent_type}' 未就绪"}), 500
             
     config: dict[str, Any] = {"configurable": {"thread_id": thread_id}}
     
     # 1. 自动路由处理 (Router Logic)
     if agent_type == 'router':
-        # 调用 Router 获取意图
-        # 注入 LangFuse 观测回调
         langfuse_handler = get_langfuse_callback()
         if langfuse_handler:
             config["callbacks"] = [langfuse_handler]
-            print(f"[OBSERVABILITY] LangFuse tracing enabled for router.")
 
         router_state = agent_app.invoke({"query": query}, config=config)
         
-        # 提取 Token 消耗并上报 Prometheus
         if "metadata" in router_state and "usage_metadata" in router_state["metadata"]:
             usage = router_state["metadata"]["usage_metadata"]
             report_token_usage(
@@ -548,21 +706,17 @@ def agent_query():
                 agent_name="router"
             )
         intent = router_state.get("intent", "unknown")
-        print(f"[API] Router identified intent: {intent}")
         
         if intent != 'unknown' and intent in AGENTS:
-            # 自动切换到目标 Agent
             agent_type = intent
             agent_app = AGENTS[intent]
-            # 继续执行后续的初始化逻辑
         else:
-            # 意图不明，直接返回 Router 结果
             state_snapshot = agent_app.get_state(config)
             return jsonify(dict(state_snapshot.values))
 
-    # 2. 状态初始化与调用子 Agent
+    # 2. 状态初始化
     if agent_type == 'writing':
-        outline_id = query # 初始 query 是大纲 ID
+        outline_id = query
         outline_content = get_outline_by_id(outline_id)
         if not outline_content:
             return jsonify({"error": f"大纲 ID '{outline_id}' 不存在"}), 400
@@ -587,66 +741,148 @@ def agent_query():
         }
     elif agent_type == 'worldview':
         input_state = {
-            "query": query,
-            "context": "",
-            "proposal": "",
-            "review_log": "",
-            "user_feedback": "",
-            "iterations": 0,
-            "audit_count": 0,
-            "is_approved": False,
-            "category": "",
-            "doc_id": "",
+            "query": query, "context": "", "proposal": "", "review_log": "", "user_feedback": "",
+            "iterations": 0, "audit_count": 0, "is_approved": False, "category": "", "doc_id": "",
             "status_message": "正在启动万象星际探查..."
         }
     else: # outline
         input_state = {
-            "query": query,
-            "context": "",
-            "proposal": "",
-            "review_log": "",
-            "user_feedback": "",
-            "iterations": 0,
-            "audit_count": 0,
-            "is_approved": False,
-            "status_message": "正在生成小说大纲提案..."
+            "query": query, "context": "", "proposal": "", "review_log": "", "user_feedback": "",
+            "iterations": 0, "audit_count": 0, "is_approved": False, "status_message": "正在生成小说大纲提案..."
         }
     
-    print(f"\n[API] Invoking Agent '{agent_type}' for thread '{thread_id}'")
-    print(f"[API] Input State: {json.dumps(input_state, ensure_ascii=False)[:200]}...")
-    try:
-        # 注入 LangFuse 观测回调
-        langfuse_handler = get_langfuse_callback()
-        if langfuse_handler:
-            config["callbacks"] = [langfuse_handler]
-            print(f"[OBSERVABILITY] LangFuse tracing enabled for {agent_type}.")
+    stream_input = Command(resume=resume_input) if resume_input else input_state
+    q = queue.Queue()
 
-        def generate_query():
+    def worker():
+        try:
+            q.put({"type": "node_update", "node": "system", "status_message": "后台已接收请求，正在处理工作流..."})
+            max_retries = 5
+            for attempt in range(max_retries + 1):
+                try:
+                    langfuse_handler = get_langfuse_callback()
+                    config_callbacks = [langfuse_handler] if langfuse_handler else []
+                    local_config = {**config, "callbacks": config_callbacks}
+
+                    for event in agent_app.stream(stream_input, config=local_config, stream_mode="updates"):
+                        for node_name, node_data in event.items():
+                            status_msg = node_data.get("status_message")
+                            if not status_msg:
+                                friendly_names = {
+                                    "retriever": "正在从知识库检索背景素材...",
+                                    "planner": "正在策划大纲与章节目录...",
+                                    "auditor": "正在进行逻辑一致性审计...",
+                                    "grounding_audit": "正在执行素材锚定审计...",
+                                    "entity_sentinel": "正在执行实体名规范化审计...",
+                                    "human": "提案已就绪，等待人工审核...",
+                                    "saver": "正在同步分布式存储协议...",
+                                    "defense": "内容安全防御检查中...",
+                                    "writing_retriever": "正在检索该场次相关的世界观背景...",
+                                    "load_context": "正在对齐分布式创作协议 (SKILL)...",
+                                    "write_draft": "正在根据当前锚点创作文学正文...",
+                                    "audit_logic": "正在执行文学自审与逻辑边界检查...",
+                                    "prose_saver": "正文已保存，正在执行向量化同步...",
+                                    "snapshot_node": "正在生成场次逻辑快照...",
+                                    "parse": "正在解析导入的原始文档...",
+                                    "segment": "正在将文档切分为独立的设定实体...",
+                                    "categorize": "正在将实体归入 0-4 逻辑架构...",
+                                    "sync": "正在将导入的设定同步至数据库..."
+                                }
+                                status_msg = friendly_names.get(node_name, f"进度: {node_name}")
+                            
+                            q.put({
+                                "type": "node_update", "node": node_name, "status_message": status_msg,
+                                "proposal": node_data.get("proposal"), "is_approved": node_data.get("is_approved"),
+                                "diagnostics": node_data.get("llm_interactions")
+                            })
+                    break
+                except Exception as e:
+                    err_str = str(e)
+                    if ("429" in err_str or "RESOURCE_EXHAUSTED" in err_str) and attempt < max_retries:
+                        rotate_api_key()
+                        q.put({"type": "node_update", "node": "system", "status_message": f"API 配额超限，正在自动切换备用 Key 重试 (第 {attempt+1} 次)..."})
+                        continue
+                    else:
+                        raise e
+
+            final_snapshot = agent_app.get_state(config)
+            final_state_data = dict(final_snapshot.values)
+            final_state_data["type"] = "final_state"
+            final_state_data["thread_id"] = thread_id
+            q.put(final_state_data)
+        except Exception as e:
+            q.put({"type": "error", "error": str(e)})
+        finally:
+            q.put(None)
+
+    worker_thread = threading.Thread(target=worker)
+    worker_thread.daemon = True
+    worker_thread.start()
+
+    def generate_stream():
+        while True:
             try:
-                # 使用 stream(updates) 获取节点级别的更新
-                for event in agent_app.stream(input_state, config=config, stream_mode="updates"):
-                    for node_name, node_data in event.items():
-                        yield json.dumps({
-                            "type": "node_update",
-                            "node": node_name,
-                            "status_message": str(node_data.get("status_message", f"节点 {node_name} 已完成")),
-                            "diagnostics": node_data.get("llm_interactions")
-                        }) + "\n"
-                
-                # 最后发送完整状态
-                final_snapshot = agent_app.get_state(config)
-                final_state = dict(final_snapshot.values)
-                final_state["type"] = "final_state"
-                final_state["thread_id"] = thread_id
-                yield json.dumps(final_state) + "\n"
-                
-            except Exception as e:
-                # 429 自动换 key 重试逻辑 (流式模式下较难重试，这里先仅报错)
-                yield json.dumps({"type": "error", "error": str(e)}) + "\n"
+                msg = q.get(timeout=5)
+                if msg is None: break
+                yield json.dumps(msg, ensure_ascii=False) + "\n"
+            except queue.Empty:
+                yield json.dumps({"type": "heartbeat", "time": time.time()}) + "\n"
 
-        return Response(generate_query(), mimetype='application/x-ndjson')
-    except Exception as e:
-        raise e # 继续抛给 global handler
+    from flask import stream_with_context
+    return Response(stream_with_context(generate_stream()), mimetype='application/x-ndjson')
+
+@app.route('/api/agent/batch-write', methods=['POST'])
+def agent_batch_write():
+    data = request.json
+    outline_id = data.get('outline_id')
+    outline_content = data.get('outline_content', '')
+    current_act = data.get('current_act', '')
+    thread_id = data.get('thread_id', f"batch_{str(uuid.uuid4())[:8]}")
+    
+    from writing_execution_agent_langgraph import app as writing_app
+    config = {"configurable": {"thread_id": thread_id}}
+    input_state = {"outline_id": outline_id, "outline_content": outline_content, "current_act": current_act, "is_batch_mode": True, "retry_count": 0, "status_message": "正在启动批量创作流水线 (Chapter Batch Indexing)..."}
+    
+    q = queue.Queue()
+    def worker():
+        try:
+            q.put({"type": "node_update", "node": "system", "status_message": "后台已接收批量创作请求，正在初始化流水线..."})
+            max_retries = 5
+            for attempt in range(max_retries + 1):
+                try:
+                    langfuse_handler = get_langfuse_callback()
+                    config_callbacks = [langfuse_handler] if langfuse_handler else []
+                    local_config = {**config, "callbacks": config_callbacks}
+                    for event in writing_app.stream(input_state, config=local_config, stream_mode="updates"):
+                        for node_name, node_data in event.items():
+                            status_msg = node_data.get("status_message")
+                            if not status_msg:
+                                extra_names = {"writing_retriever": "正在检索该场次相关的世界观背景...", "load_context": "正在对齐分布式创作协议 (SKILL)...", "write_draft": "正在根据当前锚点创作文学正文...", "audit_logic": "正在执行文学自审与逻辑边界检查...", "prose_saver": "正文已保存，正在执行向量化同步...", "snapshot_node": "正在生成场次逻辑快照...", "plan_scenes": "正在将大纲细化为具体场次..."}
+                                status_msg = extra_names.get(node_name, f"进度: {node_name}")
+                            q.put({"type": "node_update", "node": node_name, "status_message": status_msg, "proposal": node_data.get("proposal"), "is_approved": node_data.get("is_approved"), "diagnostics": node_data.get("llm_interactions")})
+                    break
+                except Exception as e:
+                    err_str = str(e)
+                    if ("429" in err_str or "RESOURCE_EXHAUSTED" in err_str) and attempt < max_retries:
+                        rotate_api_key(); q.put({"type": "node_update", "node": "system", "status_message": f"API 配额超限，正在自动切换备用 Key 重试 (第 {attempt+1} 次)..."}); continue
+                    else: raise e
+            final_snapshot = writing_app.get_state(config)
+            final_state_data = dict(final_snapshot.values)
+            final_state_data["type"] = "final_state"
+            final_state_data["thread_id"] = thread_id
+            q.put(final_state_data)
+        except Exception as e: q.put({"type": "error", "error": str(e)})
+        finally: q.put(None)
+    worker_v = threading.Thread(target=worker); worker_v.daemon = True; worker_v.start()
+    def generate_stream():
+        while True:
+            try:
+                msg = q.get(timeout=5)
+                if msg is None: break
+                yield json.dumps(msg, ensure_ascii=False) + "\n"
+            except queue.Empty: yield json.dumps({"type": "heartbeat", "time": time.time()}) + "\n"
+    from flask import stream_with_context
+    return Response(stream_with_context(generate_stream()), mimetype='application/x-ndjson')
 
 @app.route('/api/agent/feedback', methods=['POST'])
 def agent_feedback():
@@ -657,7 +893,7 @@ def agent_feedback():
     
     agent_app = AGENTS.get(agent_type)
     if not agent_app:
-            return jsonify({"error": f"Agent '{agent_type}' 未就绪"}), 500
+        return jsonify({"error": f"Agent '{agent_type}' 未就绪"}), 500
             
     config = {"configurable": {"thread_id": thread_id}}
     print(f"\n[API] Resuming Agent '{agent_type}' for thread '{thread_id}'")
@@ -740,11 +976,12 @@ def search_lore(retry=True):
             parent_entity = get_lore_by_doc_id(target_id)
             if parent_entity:
                 formatted.append({
-                    "name": parent_entity.get('name', '搜索结果'),
+                    "id": target_id,
+                    "type": parent_entity.get('type') or 'worldview',
+                    "name": parent_entity.get('name') or parent_entity.get('query') or '搜索结果',
                     "content": parent_entity.get('content', ''),
-                    "category": parent_entity.get('category', 'Search'),
+                    "category": parent_entity.get('category') or parent_entity.get('path') or 'Search Results',
                     "timestamp": parent_entity.get('timestamp', 'Known'),
-                    "doc_id": target_id,
                     "match_type": doc_type
                 })
                 seen_doc_ids.add(target_id)
@@ -802,7 +1039,12 @@ def approve_entity():
     success = approve_draft_entity(data['name'])
     if success:
         return jsonify({"status": "approved", "name": data['name']})
-    return jsonify({"error": f"实体 '{data['name']}' 未找到或已处理"}), 404
+    
+    # 更详细的错误提示
+    return jsonify({
+        "error": f"实体 '{data['name']}' 批准失败",
+        "detail": "可能原因：草案不存在、状态非 pending 或数据库写入权限问题。请刷新后重试。"
+    }), 404
 
 @app.route('/api/entity-drafts/reject', methods=['POST'])
 def reject_entity():
@@ -812,28 +1054,91 @@ def reject_entity():
         return jsonify({"error": "缺少 name 参数"}), 400
     
     # 更新草案库中的状态为 rejected
-    if not os.path.exists('entity_drafts_db.json'):
+    if not os.path.exists(get_db_path("entity_drafts_db.json")):
         return jsonify({"error": "草案库不存在"}), 404
     
     all_drafts = []
     found = False
-    with open('entity_drafts_db.json', 'r', encoding='utf-8') as f:
+    with open(get_db_path("entity_drafts_db.json"), 'r', encoding='utf-8') as f:
         for line in f:
             if not line.strip(): continue
             d = json.loads(line)
-            if d.get('name') == data['name'] and d.get('status') == 'pending':
+            # 仅拒绝 pending 状态的匹配项 (只匹配第一个)
+            if not found and d.get('name') == data['name'] and d.get('status') == 'pending':
                 d['status'] = 'rejected'
                 found = True
             all_drafts.append(d)
     
     if not found:
         return jsonify({"error": f"实体 '{data['name']}' 未找到或已处理"}), 404
+        
+    # 重要：必须写回文件
+    try:
+        with open(get_db_path("entity_drafts_db.json"), 'w', encoding='utf-8') as f:
+            for draft in all_drafts:
+                f.write(json.dumps(draft, ensure_ascii=False) + "\n")
+        return jsonify({"status": "rejected", "name": data['name']})
+    except Exception as e:
+        logger.error(f"Reject write failed: {e}")
+        return jsonify({"error": "数据库写入失败", "detail": str(e)}), 500
+
+@app.route('/api/entity-drafts/batch-approve', methods=['POST'])
+def batch_approve():
+    """批量通过实体草案"""
+    data = request.get_json()
+    if not data or 'names' not in data:
+        return jsonify({"error": "缺少 names 参数"}), 400
     
-    with open('entity_drafts_db.json', 'w', encoding='utf-8') as f:
-        for d in all_drafts:
-            f.write(json.dumps(d, ensure_ascii=False) + "\n")
+    results = batch_approve_draft_entities(data['names'])
+    return jsonify(results)
+
+@app.route('/api/entity-drafts/batch-reject', methods=['POST'])
+def batch_reject():
+    """批量拒绝实体草案"""
+    data = request.get_json()
+    if not data or 'names' not in data:
+        return jsonify({"error": "缺少 names 参数"}), 400
     
-    return jsonify({"status": "rejected", "name": data['name']})
+    results = batch_reject_draft_entities(data['names'])
+    return jsonify(results)
+
+@app.route('/api/entity-drafts/refine', methods=['POST'])
+def refine_entity():
+    """迭代修正实体草案 - 调用 Worldview Agent"""
+    data = request.get_json()
+    name = data.get('name')
+    feedback = data.get('feedback')
+    
+    if not name or not feedback:
+        return jsonify({"error": "缺少 name 或 feedback 参数"}), 400
+    
+    # 查找原始草案
+    drafts = get_draft_entities(status_filter=None)
+    target_draft = next((d for d in drafts if d['name'] == name), None)
+    if not target_draft:
+        return jsonify({"error": f"未找到实体草案: {name}"}), 404
+        
+    thread_id = f"refine_{name}_{int(time.time())}"
+    config = {"configurable": {"thread_id": thread_id}}
+    
+    initial_state = {
+        "query": name,
+        "proposal": json.dumps(target_draft.get("entity_card", {}), ensure_ascii=False),
+        "user_feedback": feedback,
+        "category": target_draft.get("type", "general"),
+        "iterations": 1
+    }
+    
+    def generate():
+        try:
+            # 直接从 generator 开始处理反馈
+            for output in worldview_app.stream(initial_state, config, stream_mode="updates"):
+                # 包装为 NDJSON 格式
+                yield json.dumps(output, ensure_ascii=False) + "\n"
+        except Exception as e:
+            yield json.dumps({"error": str(e)}, ensure_ascii=False) + "\n"
+
+    return Response(generate(), mimetype='application/x-ndjson')
 
 # --- Import Lore Endpoints ---
 
@@ -870,19 +1175,72 @@ def import_process():
     if not file_path or not os.path.exists(file_path):
         return jsonify({"error": "Invalid file path"}), 400
         
-    try:
-        # Stream the agent's execution
-        results = []
-        for output in import_app.stream({"file_path": file_path}):
-            results.append(output)
+    q = queue.Queue()
+
+    def worker():
+        try:
+            q.put({
+                "type": "node_update",
+                "node": "system",
+                "status_message": "后台已接收导入请求，正在解析文档..."
+            })
             
-        return jsonify({
-            "status": "completed",
-            "results": results,
-            "file": file_path
-        })
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+            max_retries = 5
+            for attempt in range(max_retries + 1):
+                try:
+                    for output in import_app.stream({"file_path": file_path}, stream_mode="updates"):
+                        for node_name, node_data in output.items():
+                            status_msg = node_data.get("status_message")
+                            if not status_msg:
+                                extra_names = {
+                                    "parse": "正在解析导入的原始文档...",
+                                    "segment": "正在将文档切分为独立的设定实体...",
+                                    "categorize": "正在将实体归入 0-4 逻辑架构...",
+                                    "sync": "正在将导入的设定同步至数据库..."
+                                }
+                                status_msg = extra_names.get(node_name, f"进度: {node_name}")
+
+                            q.put({
+                                "type": "node_update",
+                                "node": node_name,
+                                "status_message": status_msg,
+                                "data": node_data
+                            })
+                    break
+                except Exception as e:
+                    err_str = str(e)
+                    if ("429" in err_str or "RESOURCE_EXHAUSTED" in err_str) and attempt < max_retries:
+                        rotate_api_key()
+                        q.put({
+                            "type": "node_update",
+                            "node": "system",
+                            "status_message": f"API 配额超限，正在自动切换备用 Key 重试 (第 {attempt+1} 次)..."
+                        })
+                        continue
+                    else:
+                        raise e
+
+            q.put({"type": "final_state", "status": "completed", "file": file_path})
+        except Exception as e:
+            q.put({"type": "error", "error": str(e)})
+        finally:
+            q.put(None)
+
+    threading.Thread(target=worker).start()
+
+    def generate_stream():
+        while True:
+            try:
+                msg = q.get(timeout=5)
+                if msg is None:
+                    break
+                yield json.dumps(msg) + "\n"
+            except queue.Empty:
+                yield json.dumps({"type": "heartbeat", "time": time.time()}) + "\n"
+
+    from flask import stream_with_context
+    return Response(stream_with_context(generate_stream()), mimetype='application/x-ndjson')
+
 
 @app.route('/api/system/health', methods=['GET'])
 def system_health():
@@ -992,6 +1350,13 @@ def system_logs():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/system/llm-info', methods=['GET'])
+def get_llm_info():
+    """Returns metadata about the currently active LLM provider."""
+    from llm_factory import get_provider_info
+    return jsonify(get_provider_info())
+
 if __name__ == '__main__':
     # 启动 5005 端口
     app.run(port=5005, host='0.0.0.0', debug=True)
+

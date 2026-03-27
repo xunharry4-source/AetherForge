@@ -113,6 +113,38 @@
             </div>
         </div>
 
+        <!-- Graph Modal (Force Directed) -->
+        <div id="graph-modal" class="hidden fixed inset-0 z-[110] bg-slate-950/98 backdrop-blur-3xl flex flex-col p-8 opacity-0 transition-opacity duration-500">
+            <div class="flex justify-between items-center mb-6">
+                <div class="flex items-center gap-4">
+                    <div class="p-4 rounded-3xl bg-cyan-500/20 text-cyan-400 scale-110 shadow-lg shadow-cyan-500/10">
+                        <i data-lucide="share-2" class="w-8 h-8"></i>
+                    </div>
+                    <div>
+                        <h2 id="graph-title-h2" class="text-3xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">设定关联解析图</h2>
+                        <p id="graph-subtitle" class="text-slate-500 text-sm mt-1">Deep Relationship Topology for [Loading...]</p>
+                    </div>
+                </div>
+                <div class="flex gap-4">
+                    <button onclick="closeGraphModal()" class="p-3 bg-slate-800 rounded-2xl hover:bg-red-500/20 hover:text-red-400 transition-all text-slate-400 border border-white/5">
+                        <i data-lucide="x" class="w-6 h-6"></i>
+                    </button>
+                </div>
+            </div>
+            <div class="flex-1 glass rounded-[48px] border border-white/10 relative overflow-hidden group shadow-2xl bg-black/40">
+                <div id="graph-container" class="w-full h-full"></div>
+                <div class="absolute bottom-6 left-6 flex gap-4 text-[10px] text-slate-500 bg-black/60 px-6 py-3 rounded-2xl backdrop-blur-md border border-white/5">
+                    <div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-cyan-500 animate-pulse"></span> 当前核心</div>
+                    <div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-slate-400"></span> 关联设定</div>
+                    <div class="border-l border-white/10 pl-4 italic">双击节点聚焦 / 滚轮缩放 / 拖拽探索</div>
+                </div>
+                <div id="graph-loading" class="absolute inset-0 flex flex-col items-center justify-center bg-slate-900/60 backdrop-blur-sm z-20">
+                    <div class="w-12 h-12 border-4 border-cyan-500/20 border-t-cyan-500 rounded-full animate-spin"></div>
+                    <p class="mt-4 text-cyan-400 font-medium animate-pulse uppercase tracking-widest text-xs">正在追溯万象因果链...</p>
+                </div>
+            </div>
+        </div>
+
         <!-- Header -->
         <header class="flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div class="flex items-center gap-4">
@@ -176,10 +208,11 @@
                                 核心设定架构 (Tree)
                             </h2>
                             <div class="flex gap-2">
-                                <button onclick="showMindmap()" class="text-slate-500 hover:text-purple-400 p-1 rounded-lg transition-all" title="查看脑力图">
-                                    <i data-lucide="brain-circuit" class="w-4 h-4"></i>
+                                <button onclick="showMindmap()" class="bg-purple-600/20 hover:bg-purple-600 text-purple-400 hover:text-white px-3 py-1.5 rounded-xl transition-all border border-purple-500/30 flex items-center gap-2 text-xs font-bold shadow-lg shadow-purple-500/10 group">
+                                    <i data-lucide="brain-circuit" class="w-4 h-4 group-hover:animate-pulse"></i>
+                                    关系全景图
                                 </button>
-                                <button onclick="fetchLoreTree()" class="text-slate-500 hover:text-cyan-400 p-1 rounded-lg transition-all" title="刷新架构树">
+                                <button onclick="fetchLoreTree()" class="text-slate-500 hover:text-cyan-400 p-2 rounded-xl transition-all" title="刷新架构树">
                                     <i data-lucide="refresh-cw" class="w-4 h-4"></i>
                                 </button>
                             </div>
@@ -252,6 +285,11 @@
                     <!-- Action Bar -->
                     <div class="flex gap-4 items-center">
                         <button id="agent-run-btn" onclick="runAgent()" class="flex-1 bg-cyan-600 hover:opacity-90 text-white font-bold py-4 rounded-2xl transition-all shadow-lg">启动 PGA</button>
+                        <button id="agent-batch-btn" onclick="runBatchWrite()" class="hidden flex-1 bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-500 hover:to-indigo-500 text-white font-bold py-4 rounded-2xl transition-all shadow-lg flex items-center justify-center gap-2 relative overflow-hidden group">
+                            <i data-lucide="zap" class="w-4 h-4 text-amber-300 animate-pulse"></i> 任务: 批量全自动创作
+                            <span class="absolute top-0 right-0 bg-amber-500 text-[8px] text-white px-1.5 py-0.5 rounded-bl-lg font-black uppercase tracking-tighter">New</span>
+                            <div class="absolute inset-0 bg-white/10 opacity-0 group-hover:opacity-100 transition-opacity"></div>
+                        </button>
                         <span id="agent-status" class="text-xs text-slate-500">就绪</span>
                     </div>
 
@@ -321,13 +359,23 @@
         <!-- Entity Drafts View -->
         <div id="entity-drafts-view" class="tab-view hidden space-y-8">
             <div class="flex items-center justify-between">
-                <div class="flex items-center gap-3">
-                    <div class="p-2 rounded-lg bg-orange-500 text-white shadow-lg shadow-orange-500/50"><i data-lucide="shield-check"></i></div>
-                    <h2 class="text-2xl font-bold">待审实体草案 (Entity Sentinel)</h2>
+                <div class="flex items-center gap-4">
+                    <label class="flex items-center gap-2 text-xs text-slate-400 cursor-pointer hover:text-white transition-all">
+                        <input type="checkbox" id="select-all-drafts" onclick="toggleSelectAllDrafts()" class="rounded border-slate-700 bg-slate-900 text-orange-500 focus:ring-orange-500">
+                        全选
+                    </label>
+                    <div class="flex gap-2">
+                        <button onclick="batchApproveDrafts()" id="batch-approve-btn" disabled class="opacity-50 cursor-not-allowed px-4 py-2 bg-emerald-600/20 text-emerald-400 rounded-xl text-xs font-bold transition-all border border-emerald-600/30 flex items-center gap-1">
+                            <i data-lucide="check-square" class="w-3 h-3"></i> 批量通过
+                        </button>
+                        <button onclick="batchRejectDrafts()" id="batch-reject-btn" disabled class="opacity-50 cursor-not-allowed px-4 py-2 bg-rose-600/20 text-rose-400 rounded-xl text-xs font-bold transition-all border border-rose-600/30 flex items-center gap-1">
+                            <i data-lucide="trash-2" class="w-3 h-3"></i> 批量拒绝
+                        </button>
+                    </div>
+                    <button onclick="fetchDrafts()" class="p-2 text-slate-400 hover:text-white transition-all">
+                        <i data-lucide="refresh-cw" class="w-5 h-5"></i>
+                    </button>
                 </div>
-                <button onclick="fetchDrafts()" class="p-2 text-slate-400 hover:text-white transition-all">
-                    <i data-lucide="refresh-cw" class="w-5 h-5"></i>
-                </button>
             </div>
 
             <div id="drafts-container" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -380,6 +428,20 @@
                                 <span id="disk-used">0</span> GB 已用
                                 <span id="disk-total">0</span> GB 总量
                             </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass p-6 rounded-3xl space-y-4">
+                    <h3 class="text-sm font-bold text-slate-400 uppercase tracking-wider">LLM 引擎配置</h3>
+                    <div class="space-y-3">
+                        <div class="p-3 bg-black/20 rounded-2xl border border-slate-800">
+                            <div class="text-[10px] text-slate-500 mb-1">当前提供商 (Provider)</div>
+                            <div id="llm-provider" class="text-lg font-bold text-indigo-400">Loading...</div>
+                        </div>
+                        <div class="p-3 bg-black/20 rounded-2xl border border-slate-800">
+                            <div class="text-[10px] text-slate-500 mb-1">活跃模型 (Active Model)</div>
+                            <div id="llm-active-model" class="text-xs font-mono text-slate-300">Loading...</div>
                         </div>
                     </div>
                 </div>
@@ -549,6 +611,29 @@
                 </div>
             </div>
 
+            <!-- Refine Draft Modal -->
+            <div id="refine-modal" class="hidden fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+                <div class="glass rounded-3xl p-8 w-full max-w-lg space-y-6">
+                    <h3 class="text-xl font-bold text-white flex items-center gap-2">
+                        <i data-lucide="wand-2" class="w-5 h-5 text-amber-400"></i> 迭代修正实体草案
+                    </h3>
+                    <div class="space-y-4">
+                        <div class="bg-blue-500/10 border border-blue-500/20 p-4 rounded-2xl text-xs text-blue-300">
+                             <span class="font-bold">实体名称:</span> <span id="refine-entity-name"></span>
+                        </div>
+                        <div>
+                            <label class="text-xs text-slate-400 mb-1 block">修正建议 / 反馈内容</label>
+                            <textarea id="refine-feedback" rows="4" placeholder="例如：将这种族的能量来源改为从周围熵减过程中提取..." 
+                                class="w-full bg-slate-900/50 border border-slate-700/50 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-amber-500 transition-all resize-none"></textarea>
+                        </div>
+                    </div>
+                    <div class="flex gap-3 justify-end">
+                        <button onclick="closeRefineModal()" class="px-6 py-2 rounded-xl text-slate-400 hover:text-white transition-all">取消</button>
+                        <button id="submit-refine-btn" onclick="submitRefineDraft()" class="bg-amber-600 hover:bg-amber-500 text-white px-8 py-2 rounded-xl font-semibold transition-all">启动迭代修正</button>
+                    </div>
+                </div>
+            </div>
+
         </div>
     </div>
 
@@ -675,6 +760,20 @@
                 detailView.classList.remove('hidden');
                 detailTitle.innerText = entry.name;
                 detailContent.innerText = entry.content;
+                
+                // Add Graph View Button
+                const graphBtnId = 'lore-graph-view-btn';
+                let graphBtn = document.getElementById(graphBtnId);
+                if (!graphBtn) {
+                    graphBtn = document.createElement('button');
+                    graphBtn.id = graphBtnId;
+                    graphBtn.className = "mt-4 flex items-center gap-2 px-4 py-2 bg-cyan-600/20 text-cyan-400 rounded-xl hover:bg-cyan-600 hover:text-white transition-all border border-cyan-500/30 text-xs font-bold";
+                    graphBtn.innerHTML = '<i data-lucide="share-2" class="w-4 h-4"></i> 深度追溯关联图谱';
+                    detailContent.parentNode.insertBefore(graphBtn, detailContent.nextSibling);
+                }
+                graphBtn.onclick = () => showEntityGraph(entry.id);
+                if (window.lucide) lucide.createIcons();
+
                 currentEditingIndex = allLoreData.indexOf(entry);
                 if (window.renderHistory) renderHistory(entry);
                 window.scrollTo({ top: 300, behavior: 'smooth' }); // Scroll into view
@@ -908,12 +1007,18 @@
             if (type === 'worldview') {
                 label.innerHTML = '<i data-lucide="globe" class="w-4 h-4"></i> 输入您的设定草案或指令';
                 input.placeholder = "例如：增加一个位于室女座超星系团边缘的智械母舰设定...";
+                document.getElementById('agent-batch-btn').classList.add('hidden');
+                runBtn.classList.remove('hidden');
             } else if (type === 'outline') {
                 label.innerHTML = '<i data-lucide="list" class="w-4 h-4"></i> 输入您的小说大纲需求';
                 input.placeholder = "例如：写一个关于底层智械在戴森球内部觉醒并反抗星际协议的短篇小说大纲...";
+                document.getElementById('agent-batch-btn').classList.add('hidden');
+                runBtn.classList.remove('hidden');
             } else {
                 label.innerHTML = '<i data-lucide="pen-tool" class="w-4 h-4"></i> 输入大纲 ID 处理正文';
                 input.placeholder = "输入已由 Outline Agent 生成并批准的 Outline ID (如: outline_1710...)";
+                document.getElementById('agent-batch-btn').classList.remove('hidden');
+                runBtn.classList.remove('hidden'); // 同时保留手动/自动入口
             }
             lucide.createIcons();
         }
@@ -1119,6 +1224,68 @@
                 runBtn.innerHTML = originalBtnHtml;
                 runBtn.disabled = false;
                 if (window.lucide) lucide.createIcons();
+            }
+        }
+
+        async function runBatchWrite() {
+            const outlineId = document.getElementById('agent-input').value;
+            if (!outlineId) {
+                showToast("请输入有效的大纲 ID 以启动批量创作", "warning");
+                return;
+            }
+
+            const outputDiv = document.getElementById('agent-output');
+            const statusSpan = document.getElementById('agent-status');
+            const batchBtn = document.getElementById('agent-batch-btn');
+            const workflowTraceWrapper = document.getElementById('workflow-trace-wrapper');
+            const workflowLogContainer = document.getElementById('workflow-log-container');
+            const originalBtnHtml = batchBtn.innerHTML;
+            
+            statusSpan.innerText = "批量流水线预热中...";
+            outputDiv.innerHTML = `<div class="text-purple-400 animate-pulse">正在激活全自动叙事流水线 (Sequential Batching)...<br>目标大纲: ${outlineId}</div>`;
+            batchBtn.innerHTML = '<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> 正在生产...';
+            batchBtn.disabled = true;
+            
+            workflowTraceWrapper.classList.remove('hidden');
+            workflowLogContainer.innerHTML = '<div class="text-slate-500 italic">流水线初始化中...</div>';
+            
+            try {
+                const res = await fetch('/api/agent/batch-write', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ outline_id: outlineId })
+                });
+
+                if (!res.ok) throw new Error(await res.text());
+
+                await processStreamResponse(res, 
+                    (nodeUpdate) => {
+                        updateWorkflowLog(nodeUpdate.node, nodeUpdate.status_message, nodeUpdate.diagnostics);
+                        statusSpan.innerText = `批量任务: ${nodeUpdate.node}`;
+                    },
+                    (finalState) => {
+                        statusSpan.innerText = "全章节批量生成完成";
+                        outputDiv.innerHTML = `
+                            <div class="space-y-4">
+                                <div class="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-2xl">
+                                    <div class="text-emerald-400 font-bold flex items-center gap-2 mb-2">
+                                        <i data-lucide="check-circle" class="w-4 h-4"></i> 批量任务成功
+                                    </div>
+                                    <p class="text-xs text-slate-300">该章节的所有场次已自动通过审计并存档至数据库。</p>
+                                </div>
+                                <div class="text-xs text-slate-500 italic">你可以前往档案库查看完整生成的章节。</div>
+                            </div>
+                        `;
+                        lucide.createIcons();
+                    }
+                );
+            } catch (err) {
+                console.error("Batch write failed:", err);
+                statusSpan.innerText = "批量流水线中断";
+                showToast("流水线异常: " + err.message, "error");
+            } finally {
+                batchBtn.innerHTML = originalBtnHtml;
+                batchBtn.disabled = false;
             }
         }
 
@@ -1549,12 +1716,17 @@
             const container = document.getElementById('drafts-container');
             if (drafts.length === 0) {
                 container.innerHTML = '<div class="col-span-full text-center py-20 text-slate-500 italic">暂无待审实体草案。实体哨兵处于警戒状态 🛡️</div>';
+                document.getElementById('select-all-drafts').checked = false;
+                updateBatchButtons();
                 return;
             }
 
             container.innerHTML = drafts.map(draft => `
-                <div class="glass p-6 rounded-3xl border border-orange-500/20 hover:border-orange-500/40 transition-all space-y-4">
-                    <div class="flex justify-between items-start">
+                <div class="glass p-6 rounded-3xl border border-orange-500/20 hover:border-orange-500/40 transition-all space-y-4 relative group">
+                    <input type="checkbox" class="draft-checkbox absolute top-4 left-4 opacity-0 group-hover:opacity-100 checked:opacity-100 transition-all rounded border-slate-700 bg-slate-900 text-orange-500 focus:ring-orange-500" 
+                        onchange="updateBatchButtons()" data-name="${draft.name}">
+                    
+                    <div class="flex justify-between items-start pl-6">
                         <div>
                             <h4 class="text-lg font-bold text-white">${draft.name}</h4>
                             <span class="text-[10px] text-orange-400 font-bold uppercase tracking-wider bg-orange-500/10 px-2 py-0.5 rounded">${draft.type}</span>
@@ -1569,13 +1741,164 @@
                         <div class="text-[9px] text-cyan-400 font-bold uppercase mb-2">自动生成的设定卡 (Draft Card)</div>
                         <pre class="text-[10px] text-slate-300 font-mono overflow-x-auto scrollbar-hide">${JSON.stringify(draft.entity_card || {}, null, 2)}</pre>
                     </div>
-                    <div class="flex gap-2 pt-2">
-                        <button onclick="approveDraft('${draft.name}')" class="flex-1 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white py-2 rounded-xl text-xs font-bold transition-all border border-emerald-600/30">批准入库</button>
-                        <button onclick="rejectDraft('${draft.name}')" class="flex-1 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white py-2 rounded-xl text-xs font-bold transition-all border border-red-600/30">忽略/拒绝</button>
+                    <div class="flex flex-col gap-2 pt-2">
+                        <div class="flex gap-2">
+                            <button onclick="approveDraft(\`${draft.name}\`)" class="flex-1 bg-emerald-600/20 hover:bg-emerald-600 text-emerald-400 hover:text-white py-2 rounded-xl text-xs font-bold transition-all border border-emerald-600/30">直接批准</button>
+                            <button onclick="rejectDraft(\`${draft.name}\`)" class="flex-1 bg-red-600/20 hover:bg-red-600 text-red-400 hover:text-white py-2 rounded-xl text-xs font-bold transition-all border border-red-600/30">忽略</button>
+                        </div>
+                        <button onclick="openRefineModal(\`${draft.name}\`)" class="w-full bg-amber-600/20 hover:bg-amber-600 text-amber-400 hover:text-white py-2 rounded-xl text-xs font-bold transition-all border border-amber-600/30 flex items-center justify-center gap-2">
+                            <i data-lucide="wand-2" class="w-3.5 h-3.5"></i> 迭代修正 (Refine)
+                        </button>
                     </div>
                 </div>
             `).join('');
             lucide.createIcons();
+            updateBatchButtons();
+        }
+
+        // --- Batch Actions ---
+        function toggleSelectAllDrafts() {
+            const isChecked = document.getElementById('select-all-drafts').checked;
+            document.querySelectorAll('.draft-checkbox').forEach(cb => cb.checked = isChecked);
+            updateBatchButtons();
+        }
+
+        function updateBatchButtons() {
+            const selectedCount = document.querySelectorAll('.draft-checkbox:checked').length;
+            const approveBtn = document.getElementById('batch-approve-btn');
+            const rejectBtn = document.getElementById('batch-reject-btn');
+            
+            if (selectedCount > 0) {
+                approveBtn.disabled = false;
+                rejectBtn.disabled = false;
+                approveBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                rejectBtn.classList.remove('opacity-50', 'cursor-not-allowed');
+                approveBtn.classList.add('hover:bg-emerald-600', 'hover:text-white');
+                rejectBtn.classList.add('hover:bg-rose-600', 'hover:text-white');
+                approveBtn.innerHTML = `<i data-lucide="check-square" class="w-3 h-3"></i> 批量通过 (${selectedCount})`;
+                rejectBtn.innerHTML = `<i data-lucide="trash-2" class="w-3 h-3"></i> 批量拒绝 (${selectedCount})`;
+            } else {
+                approveBtn.disabled = true;
+                rejectBtn.disabled = true;
+                approveBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                rejectBtn.classList.add('opacity-50', 'cursor-not-allowed');
+                approveBtn.classList.remove('hover:bg-emerald-600', 'hover:text-white');
+                rejectBtn.classList.remove('hover:bg-rose-600', 'hover:text-white');
+                approveBtn.innerHTML = `<i data-lucide="check-square" class="w-3 h-3"></i> 批量通过`;
+                rejectBtn.innerHTML = `<i data-lucide="trash-2" class="w-3 h-3"></i> 批量拒绝`;
+            }
+            if (window.lucide) lucide.createIcons();
+        }
+
+        async function batchApproveDrafts() {
+            const names = Array.from(document.querySelectorAll('.draft-checkbox:checked')).map(cb => cb.getAttribute('data-name'));
+            if (!confirm(`确定批量批准这 ${names.length} 个实体草案吗？`)) return;
+            
+            try {
+                const res = await fetch('/api/entity-drafts/batch-approve', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ names })
+                });
+                const data = await res.json();
+                alert(`批量处理完成：成功 ${data.success}，失败 ${data.failed}`);
+                fetchDrafts();
+                fetchLoreTree();
+            } catch (err) {
+                alert("批量批准失败: " + err.message);
+            }
+        }
+
+        async function batchRejectDrafts() {
+            const names = Array.from(document.querySelectorAll('.draft-checkbox:checked')).map(cb => cb.getAttribute('data-name'));
+            if (!confirm(`确定批量拒绝/删除这 ${names.length} 个实体草案吗？`)) return;
+            
+            try {
+                const res = await fetch('/api/entity-drafts/batch-reject', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ names })
+                });
+                const data = await res.json();
+                alert(`批量处理完成：成功 ${data.success}，失败 ${data.failed}`);
+                fetchDrafts();
+            } catch (err) {
+                alert("批量拒绝失败: " + err.message);
+            }
+        }
+
+        // --- Refine Logic ---
+        function openRefineModal(name) {
+            document.getElementById('refine-entity-name').innerText = name;
+            document.getElementById('refine-feedback').value = '';
+            document.getElementById('refine-modal').classList.remove('hidden');
+        }
+
+        function closeRefineModal() {
+            document.getElementById('refine-modal').classList.add('hidden');
+        }
+
+        async function submitRefineDraft() {
+            const name = document.getElementById('refine-entity-name').innerText;
+            const feedback = document.getElementById('refine-feedback').value;
+            const btn = document.getElementById('submit-refine-btn');
+            
+            if (!feedback.trim()) {
+                alert("请输入修正建议");
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerText = "正在调用 Agent...";
+            
+            // Switch to Agent View and start tracing
+            switchTab('agent');
+            const outputArea = document.getElementById('agent-output');
+            outputArea.innerHTML = `<div class="text-amber-400 flex items-center gap-2"><i data-lucide="loader" class="w-4 h-4 animate-spin"></i> 正在针对实体 [${name}] 执行迭代修正...</div>`;
+            lucide.createIcons();
+            
+            // Show trace panel
+            document.getElementById('workflow-trace-wrapper').classList.remove('hidden');
+            document.getElementById('workflow-log-container').innerHTML = '';
+
+            try {
+                const response = await fetch('/api/entity-drafts/refine', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, feedback })
+                });
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { value, done } = await reader.read();
+                    if (done) break;
+                    
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop();
+
+                    for (const line of lines) {
+                        if (!line.trim()) continue;
+                        try {
+                            const data = JSON.parse(line);
+                            handleAgentStreamUpdate(data); // Re-use existing trace logic
+                        } catch (e) {
+                            console.error("NDJSON parse error:", e, line);
+                        }
+                    }
+                }
+                
+                closeRefineModal();
+                alert("迭代修正任务已启动，请在 Agent 工作区关注进展。");
+                
+            } catch (err) {
+                alert("调用 Agent 失败: " + err.message);
+                btn.disabled = false;
+                btn.innerText = "启动迭代修正";
+            }
         }
 
         async function approveDraft(name) {
@@ -1588,11 +1911,13 @@
                     body: JSON.stringify({ name: name })
                 });
                 const data = await res.json();
-                console.log("Approve response:", data);
-                if (data.error) throw new Error(data.error);
+                if (!res.ok) {
+                    const errorMsg = data.error || (data.detail ? `${data.error}: ${data.detail}` : "HTTP " + res.status);
+                    throw new Error(errorMsg);
+                }
                 alert("批准成功！实体已正式入库。");
                 fetchDrafts();
-                fetchLore(); 
+                if (typeof fetchLoreTree === 'function') fetchLoreTree(); 
             } catch (err) {
                 console.error("Approve error:", err);
                 alert("操作失败: " + err.message);
@@ -1608,7 +1933,7 @@
                     body: JSON.stringify({ name: name })
                 });
                 const data = await res.json();
-                if (data.error) throw new Error(data.error);
+                if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
                 fetchDrafts();
             } catch (err) {
                 alert("操作失败: " + err.message);
@@ -1839,9 +2164,36 @@
                     document.getElementById('llm-cost').innerText = '$' + data.llm.estimated_cost_usd.toFixed(6);
                     document.getElementById('llm-requests').innerText = data.llm.request_count.toLocaleString();
                 }
+
+                // New: Fetch LLM Provider Info
+                await fetchLLMInfo();
                 
             } catch (err) {
                 console.error("Health fetch failed:", err);
+            }
+        }
+
+        async function fetchLLMInfo() {
+            try {
+                const res = await fetch('/api/system/llm-info');
+                if (!res.ok) return;
+                const data = await res.json();
+                const providerBadge = document.getElementById('llm-provider');
+                const modelBadge = document.getElementById('llm-active-model');
+                
+                providerBadge.innerText = data.provider.toUpperCase();
+                modelBadge.innerText = data.model;
+                
+                // Aesthetic coloring based on provider
+                if (data.provider === 'gemini') {
+                    providerBadge.className = "text-lg font-bold text-indigo-400";
+                } else if (data.provider === 'openai') {
+                    providerBadge.className = "text-lg font-bold text-emerald-400";
+                } else {
+                    providerBadge.className = "text-lg font-bold text-amber-400";
+                }
+            } catch (err) {
+                console.error("LLM info fetch failed:", err);
             }
         }
 
@@ -1936,6 +2288,135 @@
             setTimeout(() => {
                 modal.classList.add('hidden');
             }, 300);
+        }
+
+        // --- Entity Relationship Graph (D3.js Force Directed) ---
+        let simulation;
+        async function showEntityGraph(id) {
+            const modal = document.getElementById('graph-modal');
+            const container = document.getElementById('graph-container');
+            const loading = document.getElementById('graph-loading');
+            const subtitle = document.getElementById('graph-subtitle');
+            
+            modal.classList.remove('hidden');
+            setTimeout(() => modal.classList.add('opacity-100'), 10);
+            loading.classList.remove('hidden');
+            container.innerHTML = '';
+            
+            try {
+                // Ensure ID is passed correctly
+                const res = await fetch(`/api/lore/entity-graph/${id}`);
+                const data = await res.json();
+                loading.classList.add('hidden');
+                
+                if (!data.nodes || data.nodes.length <= 1) {
+                    container.innerHTML = `
+                        <div class="flex flex-col items-center justify-center h-full text-slate-500 italic space-y-4">
+                            <i data-lucide="info" class="w-12 h-12 opacity-20"></i>
+                            <p>该实体目前是文本孤岛，未发现明确的二阶显性关联</p>
+                        </div>`;
+                    if (window.lucide) lucide.createIcons();
+                    return;
+                }
+                
+                subtitle.innerText = `Deep Relationship Topology for ${data.nodes[0].name}`;
+                renderD3Graph(data);
+            } catch (err) {
+                console.error("Graph error:", err);
+                loading.classList.add('hidden');
+                showStatus('无法追溯关联拓扑: ' + err.message, 'error');
+            }
+        }
+
+        function renderD3Graph(data) {
+            const container = document.getElementById('graph-container');
+            const width = container.clientWidth;
+            const height = container.clientHeight;
+            
+            const svg = d3.select("#graph-container")
+                .append("svg")
+                .attr("width", "100%")
+                .attr("height", "100%")
+                .attr("viewBox", [0, 0, width, height]);
+                
+            const g = svg.append("g");
+            
+            const zoom = d3.zoom()
+                .scaleExtent([0.1, 4])
+                .on("zoom", (event) => g.attr("transform", event.transform));
+            svg.call(zoom);
+
+            simulation = d3.forceSimulation(data.nodes)
+                .force("link", d3.forceLink(data.links).id(d => d.id).distance(180))
+                .force("charge", d3.forceManyBody().strength(-500))
+                .force("center", d3.forceCenter(width / 2, height / 2))
+                .force("collision", d3.forceCollide().radius(70));
+
+            const link = g.append("g")
+                .selectAll("line")
+                .data(data.links)
+                .join("line")
+                .attr("stroke", "#334155")
+                .attr("stroke-opacity", 0.4)
+                .attr("stroke-width", 2)
+                .attr("stroke-dasharray", "5,5");
+
+            const node = g.append("g")
+                .selectAll("g")
+                .data(data.nodes)
+                .join("g")
+                .attr("cursor", "pointer")
+                .call(d3.drag()
+                    .on("start", (event, d) => {
+                        if (!event.active) simulation.alphaTarget(0.3).restart();
+                        d.fx = d.x; d.fy = d.y;
+                    })
+                    .on("drag", (event, d) => { d.fx = event.x; d.fy = event.y; })
+                    .on("end", (event, d) => {
+                        if (!event.active) simulation.alphaTarget(0);
+                        d.fx = null; d.fy = null;
+                    }))
+                .on("dblclick", (e, d) => showEntityGraph(d.id));
+
+            // Inner Glow for central node
+            node.filter((d, i) => i === 0)
+                .append("circle")
+                .attr("r", 25)
+                .attr("fill", "rgba(34,211,238,0.1)")
+                .attr("stroke", "none")
+                .attr("class", "animate-pulse");
+
+            node.append("circle")
+                .attr("r", (d, i) => i === 0 ? 20 : 12)
+                .attr("fill", (d, i) => i === 0 ? "#22d3ee" : "#1e293b")
+                .attr("stroke", (d, i) => i === 0 ? "#06b6d4" : "#475569")
+                .attr("stroke-width", 2);
+
+            node.append("text")
+                .text(d => d.name)
+                .attr("y", (d, i) => i === 0 ? 35 : 25)
+                .attr("text-anchor", "middle")
+                .attr("fill", (d, i) => i === 0 ? "#FFF" : "#94a3b8")
+                .attr("font-size", (d, i) => i === 0 ? "12px" : "10px")
+                .attr("font-weight", (d, i) => i === 0 ? "bold" : "normal");
+
+            simulation.on("tick", () => {
+                link
+                    .attr("x1", d => d.source.x)
+                    .attr("y1", d => d.source.y)
+                    .attr("x2", d => d.target.x)
+                    .attr("y2", d => d.target.y);
+                node.attr("transform", d => `translate(${d.x},${d.y})`);
+            });
+        }
+
+        function closeGraphModal() {
+            const modal = document.getElementById('graph-modal');
+            modal.classList.remove('opacity-100');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                if (simulation) simulation.stop();
+            }, 500);
         }
 
         function downloadOPML() {

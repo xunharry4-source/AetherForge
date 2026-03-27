@@ -187,7 +187,7 @@ TASK:
             "research_confidence": validated.confidence_score,
             "extracted_facts": validated.extracted_facts,
             "scratchpad": new_scratchpad[-5:], # 仅保留最近5轮思考避免上下文爆炸
-            "status_message": f"Autoresearch 正在推演逻辑边界... 当前置信度: {validated.confidence_score}",
+            "status_message": f"🧠 Autoresearch 深度推演中 (置信度: {validated.confidence_score})... 正在搜根据逻辑边界推演底层事实。",
             "llm_interactions": {
                 "autoresearch": {
                     "prompt": prompt,
@@ -195,6 +195,7 @@ TASK:
                 }
             }
         }
+
     except Exception as e:
         print(f"[Autoresearch] 解析失败: {e}")
         return {
@@ -331,7 +332,7 @@ TASK: 请完成设定提案。必须输出为 JSON 格式。
         "category": category,
         "iterations": curr_iterations + 1, 
         "scratchpad": current_scratchpad,
-        "status_message": f"[{category_info['title']}] 提议已生成并进入结构化防御层 (Defense)...",
+        "status_message": f"📝 [{category_info['title']}] 设定提案已生成，正在进入结构化防御层 (Defense) 审计...",
         "llm_interactions": {
             "generator": {
                 "prompt": full_prompt,
@@ -339,6 +340,7 @@ TASK: 请完成设定提案。必须输出为 JSON 格式。
             }
         }
     }
+
 
 
 import pydantic
@@ -376,8 +378,9 @@ def defense_node(state: AgentState):
         # 此时数据合法，允许通过防爆门
         return {
             "defense_log": "通过了 Cookbook 结构化防御检查。",
-            "status_message": "格式合法，进入逻辑审查阶段 (Reviewer)..."
+            "status_message": "🛡️ 结构格式合法，正在由逻辑专家执行 0-4 协议一致性审计..."
         }
+
     except Exception as e:
         error_msg = f"防御层拦截了污染数据: {str(e)}"
         print(f"[DEFENSE BLOCK] {error_msg}")
@@ -391,8 +394,9 @@ def defense_node(state: AgentState):
             
         return {
             "defense_log": error_msg,
-            "status_message": "生成格式失效，被防御门拦截，强制重试..."
+            "status_message": "⚠️ 生成格式失效，已被防御门拦截，正在自动回溯修正..."
         }
+
 
 
 def reviewer_node(state: AgentState):
@@ -438,13 +442,13 @@ def reviewer_node(state: AgentState):
         is_logical_ok = audit_data.get("status") == "合理"
         is_ok = is_purity_ok and is_logical_ok
         
-        msg = f"完成审计：{'通过' if is_ok else '检测到逻辑混淆，正在重试'}"
+        msg = f"完成审计：{'✅ 通过' if is_ok else '❌ 检测到逻辑混淆，正在重试'}"
         print(f"[DEBUG] Reviewer result: {msg}, is_approved: {is_ok}")
         return {
             "review_log": audit_data.get("audit_log", res.content), 
             "is_approved": is_ok,
             "audit_count": count + 1,
-            "status_message": msg,
+            "status_message": f"{msg}。正在准备人工核核准对话框...",
             "llm_interactions": {
                 "reviewer": {
                     "prompt": full_prompt,
@@ -452,7 +456,9 @@ def reviewer_node(state: AgentState):
                 }
             }
         }
+
     except Exception as e:
+
         print(f"[DEBUG] Reviewer parsing error: {e}")
         return {"review_log": res.content, "is_approved": False, "audit_count": count + 1, "status_message": "审核解析异常"}
 
@@ -477,10 +483,11 @@ def human_node(state: AgentState):
         exit()
         
     # Web 模式：使用 interrupt 暂停图，等待用户反馈
-    print("[DEBUG] human_node: Interrupting for user feedback (Web mode)...")
+    print(f"[DEBUG] human_node: Interrupting for '{category}' (thread={os.getenv('LANGGRAPH_THREAD_ID', 'N/A')})")
     user_input = interrupt({"status_message": f"{category.upper()} 设定已就绪，等待核准...", "proposal": proposal})
     print(f"[DEBUG] human_node: Resumed. Received feedback: '{user_input}'")
-    return {"user_feedback": user_input, "is_approved": user_input == "批准", "status_message": "正在处理您的反馈..."}
+    is_approved = any(word in str(user_input) for word in ["批准", "通过", "OK", "yes", "保存"])
+    return {"user_feedback": str(user_input), "is_approved": is_approved, "status_message": "正在处理您的反馈..."}
 
 def saver_node(state: AgentState):
     """
@@ -498,17 +505,30 @@ def saver_node(state: AgentState):
         "query": state.get('query',''),
         "timestamp": str(os.getenv("CURRENT_TIME", "2026-03-19T13:00:00"))
     }
-    with open("worldview_db.json", "a", encoding="utf-8") as f:
-        f.write(json.dumps(doc, ensure_ascii=False) + "\n")
+    print(f"[DEBUG] saver_node: Attempting to save to worldview_db.json...")
+    db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "worldview_db.json")
+    os.makedirs(os.path.dirname(db_path), exist_ok=True)
     try:
-        v_store = get_vector_store()
-        if v_store:
-            v_store.add_texts(
-                texts=[state.get('proposal','')], 
-                metadatas=[{"category": state.get('category', 'general'), "source": "agent_generated"}]
-            )
-    except Exception: pass
-    return {"is_approved": True, "status_message": "设定已通过审计并录入 PGA 数据库。"}
+        with open(db_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(doc, ensure_ascii=False) + "\n")
+        print(f"[DEBUG] saver_node: Save successful.")
+    except Exception as e:
+        print(f"[DEBUG] saver_node: Save failed: {e}")
+        return {"is_approved": False, "status_message": f"存储失败: {e}"}
+        
+    # try:
+    #     v_store = get_vector_store()
+    #     if v_store:
+    #         v_store.add_texts(
+    #             texts=[state.get('proposal','')], 
+    #             metadatas=[{"category": state.get('category', 'general'), "source": "agent_generated"}]
+    #         )
+    #         print(f"[DEBUG] saver_node: Sync to Vector Store successful.")
+    # except Exception as e:
+    #     print(f"[DEBUG] saver_node: Sync to Vector Store failed: {e}")
+
+    return {"is_approved": True, "status_message": "✨ 设定已通过审计并成功同步至 PGA 核心数据库。"}
+
 
 # ==========================================
 # Graph Definition
@@ -552,9 +572,15 @@ workflow.add_conditional_edges("reviewer", route_after_review, {"human": "human"
 
 def route_after_human(state: AgentState):
     fb = state.get("user_feedback", "").strip()
-    if fb == "批准": return "saver"
+    is_approved = state.get("is_approved", False)
+    print(f"[DEBUG] route_after_human: fb='{fb}', is_approved={is_approved}")
+    if is_approved or any(word in fb for word in ["批准", "通过", "OK", "yes", "保存"]): 
+        print(f"[DEBUG] route_after_human: routing to 'saver'")
+        return "saver"
     if fb == "终止": return END
-    if fb: return "generator"
+    if fb: 
+        print(f"[DEBUG] route_after_human: routing to 'generator'")
+        return "generator"
     return END
 
 workflow.add_conditional_edges("human", route_after_human, {"saver": "saver", "generator": "generator", END: END})

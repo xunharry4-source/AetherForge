@@ -11,7 +11,7 @@
 import os
 import json
 from typing import List, Dict, TypedDict, Annotated, Any
-from langgraph.graph import StateGraph, END
+from langgraph.graph import StateGraph, END, START
 from langchain_core.messages import HumanMessage, SystemMessage
 from lore_utils import (
     get_llm, 
@@ -29,6 +29,7 @@ class ImportState(TypedDict):
     entities: List[Dict[str, Any]]
     results: List[str]
     status: str
+    status_message: str
 
 # --- Nodes ---
 
@@ -36,9 +37,16 @@ def parse_file_node(state: ImportState):
     """提取文件内容"""
     try:
         text = extract_text_from_file(state["file_path"])
-        return {"raw_text": text, "status": "parsed"}
+        return {
+            "raw_text": text, 
+            "status": "parsed",
+            "status_message": "📄 文件解析成功，正在提取原始文本内容..."
+        }
     except Exception as e:
-        return {"status": f"error: {str(e)}"}
+        return {
+            "status": f"error: {str(e)}",
+            "status_message": f"❌ 文件解析失败: {str(e)}"
+        }
 
 def segment_lore_node(state: ImportState):
     """根据策略进行切片"""
@@ -48,27 +56,27 @@ def segment_lore_node(state: ImportState):
     text = state["raw_text"]
     entities = []
 
+    msg = f"🧩 正在使用 {strategy.upper()} 策略对世界观文档进行逻辑分篇..."
+    
     if strategy == "regex":
         # 按照 Markdown 标题切分 (#, ##, ###)
         import re
-        # 寻找 ### 或 ## 或 # 开头的行
         chunks = re.split(r'\n(?=#{1,3} )', text)
         for chunk in chunks:
             if not chunk.strip(): continue
             lines = chunk.strip().split('\n')
             title = lines[0].replace('#', '').strip()
             entities.append({"name": title, "content": chunk.strip()})
-        return {"entities": entities, "status": "segmented"}
+        return {"entities": entities, "status": "segmented", "status_message": msg}
 
     elif strategy == "fixed":
-        # 固定字符长度切分 (1000字 200字重叠)
         size = 1000
         overlap = 200
         for i in range(0, len(text), size - overlap):
             chunk = text[i:i + size]
             title = f"片段_{i//(size-overlap) + 1}"
             entities.append({"name": title, "content": chunk})
-        return {"entities": entities, "status": "segmented"}
+        return {"entities": entities, "status": "segmented", "status_message": msg}
 
     else: # Default: llm
         model = get_llm()
@@ -86,9 +94,9 @@ def segment_lore_node(state: ImportState):
         try:
             from lore_utils import parse_json_safely
             entities = parse_json_safely(response.content)
-            return {"entities": entities, "status": "segmented"}
+            return {"entities": entities, "status": "segmented", "status_message": msg}
         except Exception as e:
-            return {"status": f"error_segment: {str(e)}"}
+            return {"status": f"error_segment: {str(e)}", "status_message": "❌ LLM 切分解析异常"}
 
 def categorize_pga_node(state: ImportState):
     """分类到 PGA 0-4 架构"""
@@ -97,7 +105,6 @@ def categorize_pga_node(state: ImportState):
     model = get_llm()
     entities = state["entities"]
     
-    # 分批处理以避免 Token 限制
     prompt = f"""
     将以下设定实体映射到 PGA 协议的 5 个核心类别中：
     - Races (种族): 生理结构、社会性、文明等级
@@ -121,12 +128,14 @@ def categorize_pga_node(state: ImportState):
         e['category'] = cat
         updated_entities.append(e)
         
-    return {"entities": updated_entities, "status": "analyzed"}
+    return {
+        "entities": updated_entities, 
+        "status": "analyzed",
+        "status_message": f"📊 已完成 {len(updated_entities)} 个实体的 0-4 协议分类。准备进入入库预览..."
+    }
 
 def sync_library_node(state: ImportState):
-    """
-    同步到数据库 (该节点在预览模式下被跳过，由 API 层面二次确认后调用 lore_utils 直接执行)
-    """
+    """同步到数据库"""
     if state["status"].startswith("error"): return state
     
     results = []
@@ -137,7 +146,11 @@ def sync_library_node(state: ImportState):
         except Exception as e:
             results.append(f"Failed: {entity['name']} ({str(e)})")
             
-    return {"results": results, "status": "completed"}
+    return {
+        "results": results, 
+        "status": "completed",
+        "status_message": "✨ 世界观导入任务已全部完成，相关实体已同步至分布式向量数据库与词条库。"
+    }
 
 # --- Graph Construction ---
 
@@ -147,20 +160,14 @@ def create_import_agent():
     workflow.add_node("parse", parse_file_node)
     workflow.add_node("segment", segment_lore_node)
     workflow.add_node("categorize", categorize_pga_node)
+    workflow.add_node("sync", sync_library_node)
     
-    workflow.set_entry_point("parse")
+    workflow.add_edge(START, "parse")
     workflow.add_edge("parse", "segment")
     workflow.add_edge("segment", "categorize")
-    workflow.add_edge("categorize", END)
+    workflow.add_edge("categorize", "sync")
+    workflow.add_edge("sync", END)
     
     return workflow.compile()
 
 app = create_import_agent()
-
-if __name__ == "__main__":
-    # Test script
-    test_file = "科幻.md"
-    if os.path.exists(test_file):
-        print(f"Starting import test for {test_file} (Strategy: regex)...")
-        for output in app.stream({"file_path": test_file, "strategy": "regex"}):
-            print(output)

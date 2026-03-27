@@ -22,6 +22,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmb
 from langchain_chroma import Chroma
 from config_utils import load_config
 from logger_utils import get_logger
+from dify_sync_utils import get_dify_client
 
 logger = get_logger("novel_agent.lore")
 try:
@@ -44,6 +45,13 @@ try:
     HAS_PDF = True
 except ImportError:
     pass
+    
+def get_db_path(filename: str) -> str:
+    """获取数据文件的绝对路径，统一存储在 data 子目录下。"""
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    data_dir = os.path.join(base_dir, "data")
+    os.makedirs(data_dir, exist_ok=True)
+    return os.path.join(data_dir, filename)
 
 # ==========================================
 # API Key Manager (Global Singleton for the module)
@@ -205,9 +213,7 @@ def get_lore_by_doc_id(doc_id: str) -> Optional[Dict[str, Any]]:
         
     # 后备尝试本地 JSON (JSONL 格式)
     try:
-        db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "worldview_db.json")
-        if not os.path.exists(db_path):
-            db_path = "worldview_db.json"
+        db_path = get_db_path("worldview_db.json")
             
         if os.path.exists(db_path):
             with open(db_path, "r", encoding="utf-8") as f:
@@ -246,7 +252,7 @@ def sync_lore_to_db(entity: Dict[str, Any]):
     except Exception as e:
         logger.warning(f"Failed to sync to MongoDB, falling back to JSONL append: {e}")
         # Fallback to worldview_db.json
-        with open("worldview_db.json", "a", encoding="utf-8") as f:
+        with open(get_db_path("worldview_db.json"), "a", encoding="utf-8") as f:
             f.write(json.dumps(entity, ensure_ascii=False) + "\n")
 
     # 3. 同步至 ChromaDB (父子结构)
@@ -311,6 +317,45 @@ def sync_lore_to_db(entity: Dict[str, Any]):
         )
         print(f"[SYNC] Lore '{entity['name']}' synced with {len(texts_to_index)} indices (Parent-Child).")
         
+        # 4. 可选：同步至 Dify 知识库 (RAG API)
+        try:
+            dify_client = get_dify_client()
+            if dify_client:
+                dataset_map = config.get("DIFY_DATASET_MAP", {})
+                category = entity.get("category", "").lower()
+                dataset_id = dataset_map.get(category)
+                
+                if dataset_id:
+                    # 获取现有的 Dify Document ID (如果有)
+                    dify_doc_id = entity.get("metadata", {}).get("dify_document_id")
+                    
+                    # 生成 Dify 同步文本 (Name + Content)
+                    sync_text = f"Title: {entity['name']}\n\n{entity['content']}"
+                    
+                    sync_res = dify_client.upsert_document(
+                        dataset_id=dataset_id,
+                        name=entity["name"],
+                        text=sync_text,
+                        document_id=dify_doc_id
+                    )
+                    
+                    if sync_res.get("success"):
+                        # 如果是第一次创建，存储 document_id 以供后续更新
+                        if not dify_doc_id:
+                            if "metadata" not in entity: entity["metadata"] = {}
+                            entity["metadata"]["dify_document_id"] = sync_res["document_id"]
+                            # 更新主库以保存此元数据
+                            coll.update_one({"doc_id": entity["doc_id"]}, {"$set": {"metadata": entity["metadata"]}})
+                        logger.info(f"[DIFY SYNC] Successfully synced '{entity['name']}' to dataset {dataset_id}")
+                    else:
+                        logger.warning(f"[DIFY ERROR] Sync failed: {sync_res.get('error')}")
+                else:
+                    logger.debug(f"[DIFY SKIP] No dataset ID mapped for category: {category}")
+            else:
+                logger.debug("[DIFY SKIP] No Dify API Key configured.")
+        except Exception as de:
+            logger.error(f"[DIFY ERROR] Critical sync error: {de}")
+            
     except Exception as e:
         print(f"[SYNC ERROR] ChromaDB sync failed for {entity['name']}: {e}")
 
@@ -331,28 +376,12 @@ def get_evolution_rules() -> str:
     except Exception:
         return "暂无进化法则。"
 
-def get_llm(json_mode=False):
-    key = _key_manager.get_key()
-    if not key:
-        raise ValueError("GOOGLE_API_KEY missing. Please check config.json.")
-    
-    config = load_config()
-    model_name = config.get("DEFAULT_MODEL", "gemini-2.0-flash")
-    
-    if json_mode:
-        return ChatGoogleGenerativeAI(
-            model=model_name, 
-            google_api_key=key,
-            max_retries=5,
-            timeout=120,
-            response_mime_type="application/json"
-        )
-    return ChatGoogleGenerativeAI(
-        model=model_name, 
-        google_api_key=key,
-        max_retries=5,
-        timeout=120
-    )
+def get_llm(json_mode=False, agent_name="unknown"):
+    """
+    统一模型初始化入口，委托给 llm_factory 处理多提供商逻辑。
+    """
+    from llm_factory import get_llm as factory_get_llm
+    return factory_get_llm(json_mode=json_mode, agent_name=agent_name)
 
 def parse_json_safely(text: str) -> Any:
     """
@@ -390,7 +419,13 @@ def parse_json_safely(text: str) -> Any:
         except Exception:
             return None
 
+_vector_store = None
+
 def get_vector_store():
+    global _vector_store
+    if _vector_store is not None:
+        return _vector_store
+        
     key = _key_manager.get_key()
     if not key:
         raise ValueError("GOOGLE_API_KEY missing for embeddings.")
@@ -404,7 +439,20 @@ def get_vector_store():
     client = chromadb.PersistentClient(path="./chroma_db")
     config = load_config()
     collection_name = config.get("CHROMA_COLLECTION_NAME", "pga_worldview_v1")
-    return Chroma(client=client, collection_name=collection_name, embedding_function=emb)
+    _vector_store = Chroma(client=client, collection_name=collection_name, embedding_function=emb)
+    return _vector_store
+
+def delete_lore_vector(doc_id: str):
+    """从向量数据库中删除指定条目"""
+    try:
+        vs = get_vector_store()
+        # Chroma (LangChain) supports delete by ids
+        vs.delete(ids=[doc_id])
+        logger.info(f"[CHROMA DELETE] Successfully deleted vector for doc_id: {doc_id}")
+        return True
+    except Exception as e:
+        logger.error(f"[CHROMA DELETE ERROR] Failed to delete {doc_id}: {e}")
+        return False
 
 def get_lore_collection_name():
     config = load_config()
@@ -437,8 +485,9 @@ def get_prohibited_rules():
                 return rule_doc["content"]
         
         # Fallback to local JSON
-        if os.path.exists("worldview_db.json"):
-            with open("worldview_db.json", "r", encoding="utf-8") as f:
+        db_path = get_db_path("worldview_db.json")
+        if os.path.exists(db_path):
+            with open(db_path, "r", encoding="utf-8") as f:
                 for line in f:
                     if line.strip():
                         data = json.loads(line)
@@ -476,8 +525,9 @@ def get_worldview_context_by_category(query):
         
     context_blocks = []
     try:
-        if os.path.exists("worldview_db.json"):
-            with open("worldview_db.json", "r", encoding="utf-8") as f:
+        db_path = get_db_path("worldview_db.json")
+        if os.path.exists(db_path):
+            with open(db_path, "r", encoding="utf-8") as f:
                 for line in f:
                     if not line.strip(): continue
                     data = json.loads(line)
@@ -736,11 +786,12 @@ def format_grounded_context_for_prompt(sources: List[Dict[str, str]]) -> str:
 
 def get_latest_book_outline():
     """获取最近一次保存的全局大纲"""
-    if not os.path.exists('outlines_db.json'):
+    db_path = get_db_path("outlines_db.json")
+    if not os.path.exists(db_path):
         return None
     try:
-        with open('outlines_db.json', 'r', encoding='utf-8') as f:
-            lines = f.readlines()
+        with open(db_path, 'r', encoding='utf-8') as f:
+            lines = [line for line in f if line.strip()]
             if not lines: return None
             # 返回最后一行（最新记录）
             return json.loads(lines[-1].strip())
@@ -750,13 +801,16 @@ def get_latest_book_outline():
 
 def get_outline_by_id(outline_id):
     """根据 ID 获取特定大纲内容"""
-    if not os.path.exists('outlines_db.json'):
+    db_path = get_db_path("outlines_db.json")
+    if not os.path.exists(db_path):
         return None
     try:
-        with open('outlines_db.json', 'r', encoding='utf-8') as f:
+        with open(db_path, 'r', encoding='utf-8') as f:
             for line in f:
+                if not line.strip(): continue
                 data = json.loads(line.strip())
-                if str(data.get('id')) == str(outline_id):
+                curr_id = data.get('id') or data.get('outline_id')
+                if str(curr_id) == str(outline_id):
                     return data
     except Exception as e:
         print(f"[lore_utils] Error searching outline {outline_id}: {e}")
@@ -776,9 +830,10 @@ def get_entity_registry() -> Dict[str, List[str]]:
     registry: Dict[str, List[str]] = {}
     
     # 从本地 JSON 扫描
-    if os.path.exists("worldview_db.json"):
+    db_path = get_db_path("worldview_db.json")
+    if os.path.exists(db_path):
         try:
-            with open("worldview_db.json", "r", encoding="utf-8") as f:
+            with open(db_path, "r", encoding="utf-8") as f:
                 for line in f:
                     if not line.strip():
                         continue
@@ -856,7 +911,7 @@ def register_draft_entity(entity_name: str, entity_type: str, source_context: st
         "created_at": _dt.datetime.now().isoformat()
     }
     try:
-        with open("entity_drafts_db.json", "a", encoding="utf-8") as f:
+        with open(get_db_path("entity_drafts_db.json"), "a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
         print(f"[Entity Sentinel] 新实体草案已登记: {entity_name} ({entity_type})")
         return True
@@ -869,10 +924,11 @@ def register_draft_entity(entity_name: str, entity_type: str, source_context: st
 def get_draft_entities(status_filter: Optional[str] = "pending") -> List[Dict]:
     """获取待审实体列表。C 层 API 使用。"""
     drafts = []
-    if not os.path.exists("entity_drafts_db.json"):
+    db_path = get_db_path("entity_drafts_db.json")
+    if not os.path.exists(db_path):
         return drafts
     try:
-        with open("entity_drafts_db.json", "r", encoding="utf-8") as f:
+        with open(get_db_path("entity_drafts_db.json"), "r", encoding="utf-8") as f:
             for line in f:
                 if not line.strip():
                     continue
@@ -885,38 +941,53 @@ def get_draft_entities(status_filter: Optional[str] = "pending") -> List[Dict]:
 
 
 def approve_draft_entity(entity_name: str) -> bool:
-    """
-    批准待审实体 → 写入正式世界观库 (worldview_db.json)。
-    C 层 - 用户在仪表盘上点"批准"后触发。
-    如果草案包含完整的 entity_card（基于分类模板生成），则将其完整写入。
-    """
-    if not os.path.exists("entity_drafts_db.json"):
-        return False
-    
+    """批准并持久化单个实体草案"""
     all_drafts = []
     target = None
+    
+    db_path = get_db_path("entity_drafts_db.json")
+    if not os.path.exists(db_path):
+        return False
+        
     try:
-        with open("entity_drafts_db.json", "r", encoding="utf-8") as f:
+        with open(get_db_path("entity_drafts_db.json"), "r", encoding="utf-8") as f:
             for line in f:
                 if not line.strip():
                     continue
                 data = json.loads(line)
-                if data.get("name") == entity_name and data.get("status") == "pending":
+                # 仅批准第一个找到的 pending 状态实体，确保单次操作的精确性
+                if not target and data.get("name") == entity_name and data.get("status") == "pending":
                     data["status"] = "approved"
                     target = data
+                    print(f"[lore_utils] Approved individual draft: {entity_name}")
                 all_drafts.append(data)
-    except Exception:
+    except Exception as e:
+        print(f"[lore_utils] Error reading drafts for approval: {e}")
         return False
     
     if not target:
+        print(f"[lore_utils] No pending draft found for: {entity_name}")
         return False
-    
-    # 更新草案库状态
-    with open("entity_drafts_db.json", "w", encoding="utf-8") as f:
-        for d in all_drafts:
-            f.write(json.dumps(d, ensure_ascii=False) + "\n")
-    
-    # 写入正式库 — 包含完整的实体设定卡
+        
+    # 持久化到正式设定库
+    try:
+        add_to_worldview_db(target)
+    except Exception as e:
+        print(f"[lore_utils] Failed to add {entity_name} to worldview: {e}")
+        return False
+        
+    # 保存更新后的草案库
+    try:
+        with open(db_path, "w", encoding="utf-8") as f:
+            for d in all_drafts:
+                f.write(json.dumps(d, ensure_ascii=False) + "\n")
+        return True
+    except Exception as e:
+        print(f"[lore_utils] Error writing drafts after approval: {e}")
+        return False
+
+def add_to_worldview_db(target: Dict[str, Any]):
+    """将草案实体转录并追加到正式世界观库"""
     entity_card = target.get("entity_card", {})
     if entity_card:
         content = json.dumps(entity_card, ensure_ascii=False, indent=2)
@@ -929,8 +1000,80 @@ def approve_draft_entity(entity_name: str) -> bool:
         "content": content,
         "path": f"自动注册/{target.get('type', 'general')}/{target['name']}"
     }
-    with open("worldview_db.json", "a", encoding="utf-8") as f:
+    with open(get_db_path("worldview_db.json"), "a", encoding="utf-8") as f:
         f.write(json.dumps(canon_record, ensure_ascii=False) + "\n")
+
+def batch_approve_draft_entities(entity_names: List[str]) -> Dict[str, Any]:
+    """批量批准实体草案"""
+    if not os.path.exists(get_db_path("entity_drafts_db.json")):
+        return {"success": 0, "failed": len(entity_names)}
+    
+    all_drafts = []
+    approved_count = 0
+    approved_targets = []
+    
+    # 使用副本追踪需要审批的草案名字，处理同名草案的情况
+    entity_names_copy = entity_names.copy()
+    
+    try:
+        with open(get_db_path("entity_drafts_db.json"), "r", encoding="utf-8") as f:
+            for line in f:
+                if not line.strip(): continue
+                data = json.loads(line)
+                name = data.get("name")
+                if name in entity_names_copy and data.get("status") == "pending":
+                    data["status"] = "approved"
+                    approved_targets.append(data)
+                    approved_count += 1
+                    entity_names_copy.remove(name)
+                all_drafts.append(data)
+        
+        # 写入正式库
+        for target in approved_targets:
+            add_to_worldview_db(target)
+            
+        # 保存草案库
+        with open(get_db_path("entity_drafts_db.json"), "w", encoding="utf-8") as f:
+            for d in all_drafts:
+                f.write(json.dumps(d, ensure_ascii=False) + "\n")
+        
+        return {"success": approved_count, "failed": len(entity_names) - approved_count}
+    except Exception as e:
+        logger.error(f"Batch approve failed: {e}")
+        return {"success": approved_count, "failed": len(entity_names) - approved_count, "error": str(e)}
+
+def batch_reject_draft_entities(entity_names: List[str]) -> Dict[str, Any]:
+    """批量拒绝实体草案"""
+    if not os.path.exists(get_db_path("entity_drafts_db.json")):
+        return {"success": 0, "failed": len(entity_names)}
+    
+    all_drafts = []
+    rejected_count = 0
+    
+    # 使用副本追踪需要拒绝的草案名字，避免超额拒绝
+    entity_names_copy = entity_names.copy()
+    
+    try:
+        with open(db_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if not line.strip(): continue
+                data = json.loads(line)
+                name = data.get("name")
+                if name in entity_names_copy and data.get("status") == "pending":
+                    data["status"] = "rejected"
+                    rejected_count += 1
+                    entity_names_copy.remove(name)
+                all_drafts.append(data)
+        
+        # 保存草案库
+        with open(get_db_path("entity_drafts_db.json"), "w", encoding="utf-8") as f:
+            for d in all_drafts:
+                f.write(json.dumps(d, ensure_ascii=False) + "\n")
+        
+        return {"success": rejected_count, "failed": len(entity_names) - rejected_count}
+    except Exception as e:
+        logger.error(f"Batch reject failed: {e}")
+        return {"success": rejected_count, "failed": len(entity_names) - rejected_count, "error": str(e)}
     
 def sync_archive_to_all_stores(item_id: str, item_type: str, content: str, name: str = None) -> bool:
     """

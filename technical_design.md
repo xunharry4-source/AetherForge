@@ -70,6 +70,13 @@ This dual-write strategy ensures that **Retrieval (RAG)** and **Persistence (His
 
 ---
 
+### 5.3 Semantic Search Architecture
+To overcome the limitations of keyword-based filtering, the system introduces vector-based semantic search:
+- **Backend Core**: The `/api/search` endpoint in `app_api.py` leverages ChromaDB for similarity retrieval, returning standardized JSON with `id` and `type` fields.
+- **Frontend Toggle**: A "Semantic Search" toggle in the Lore DB UI enables asynchronous backend queries, allowing deep intent-based retrieval across hierarchical layers.
+
+---
+
 ## 6. Novel Outline Agent (The Second Workflow)
 
 The Novel Outline Agent follows a similar 0-4 architecture but focuses on narrative structure.
@@ -80,6 +87,9 @@ The outline agent is strictly bound to a professional novel outline schema:
 - **`core_hook`**: Logline and inciting incidents.
 - **`character_roster`**: Roles and motivations.
 - **`plot_beats`**: High-level pacing (Act 1, Midpoint, Climax).
+- **Human-in-the-loop (HITL) Workflow**:
+    - **Async Streaming**: The UI uses `httpx.stream` to listen to real-time Node updates from the Agent Graph.
+    - **Interrupt & Resume**: Utilizing LangGraph's `interrupt`, the Agent pauses after drafting. The UI then resumes the flow by sending a `Command(resume=...)` based on user feedback.
 
 ### Multi-Agent Orchestration
 The `app_api.py` acts as a router, selecting between `worldview_app` and `outline_app` based on the `agent_type` flag sent by the dashboard.
@@ -113,3 +123,15 @@ To ensure the stability and traceability of the Multi-Agent system, a comprehens
 | **Knowledge Base** | Full world setting & lore | `worldview_db.json` |
 | **Vector Index** | ChromaDB persistence | `./chroma_db/` |
 | **Agent Skills** | Context-level guidelines | `.gemini/skills/` |
+| **Development Rules** | Execution & Documentation Protocol | `.cursorrules`, `technical_design.md` |
+
+---
+
+## 10. Development Protocol (开发协议)
+
+> [!IMPORTANT]
+> **Documentation First (文档先行):**
+> Before adding any new feature or UI page, the following steps **MUST** be performed:
+> 1. **Update Technical Documentation**: Explicitly describe the purpose of the new feature/page in `technical_design.md`.
+> 2. **Impact Analysis**: Document the downstream effects on existing state, databases, or Agent logic.
+> 3. **Functional Decomposition**: Break down the feature into atomic tasks (UI, API, Data, Verification).

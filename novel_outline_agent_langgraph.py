@@ -29,7 +29,8 @@ from lore_utils import (
     format_entity_registry_for_prompt,
     register_draft_entity,
     get_category_template,
-    get_evolution_rules
+    get_evolution_rules,
+    get_db_path
 )
 
 # ==========================================
@@ -57,6 +58,26 @@ class OutlineState(TypedDict):
     audit_count: int       # 当前自审重试次数
     is_approved: bool      # 是否通过审核/用户批准
     status_message: str    # 执行进度描述
+    # ==========================================
+    # 1. Nodes
+    # ==========================================
+
+def outline_retriever(state: OutlineState):
+    """
+    检索辅助节点：专门负责 RAG 检索，将耗时操作独立出来以提供更好的进度反馈。
+    """
+    query = state.get('query') or ""
+    print(f"\n[AGENT] Entering Retriever for query: {query[:50]}...")
+    
+    # 执行耗时的 RAG 检索
+    sources = get_grounded_context(query)
+    context_str = format_grounded_context_for_prompt(sources)
+    
+    return {
+        "context": context_str,
+        "status_message": "🔍 已从世界观知识库检索并锚定相关背景素材。"
+    }
+
     mode: str             # 模式: 'book' 或 'chapter'
     grounding_sources: List[dict] # 绑定的源素材索引
     scratchpad: list[str]  # Autoresearch 草稿本
@@ -75,9 +96,9 @@ def outline_planner(state: OutlineState):
     # 1. 意图与上下文识别
     is_chapter_detail = any(x in (query or "") for x in ["第", "章", "细化", "场景"])
     
-    # 检索世界观背景 (带索引的 Grounding 模式)
-    sources = get_grounded_context(query)
-    grounded_context_str = format_grounded_context_for_prompt(sources)
+    # 从状态中获取已检索的上下文 (由 retriever 节点提供)
+    grounded_context_str = state.get('context') or "【无相关源素材】"
+
     
     # 如果是细化章节，尝试获取全局大纲作为背景
     book_context = ""
@@ -182,7 +203,7 @@ Schema: {schema}
         "scratchpad": sp,
         "iterations": int(curr_iterations) + 1,
         "mode": "chapter" if is_chapter_detail else "book",
-        "status_message": f"模式: {'章节细化' if is_chapter_detail else '全局策划'}。正在进入结构化防御审查。",
+        "status_message": "🎨 大纲构思完成，正在执行结构化格式与合规性防务审计...",
         "llm_interactions": {
             "planner": {
                 "prompt": prompt,
@@ -190,6 +211,7 @@ Schema: {schema}
             }
         }
     }
+
 
 import pydantic
 from typing import Dict, Any
@@ -228,8 +250,9 @@ def outline_defense_node(state: OutlineState):
             
         return {
             "defense_log": "通过了大纲节点的 Cookbook 结构化验证。",
-            "status_message": "大纲格式合法，等待逻辑与素材考据双重审查..."
+            "status_message": "🛡️ 结构校验通过，正在由剧本专家执行逻辑一致性深度审计..."
         }
+
     except Exception as e:
         error_msg = f"大纲防御层拦截了结构破碎或幻觉数据: {str(e)}"
         print(f"[DEFENSE BLOCK OUTLINE] {error_msg}")
@@ -243,8 +266,9 @@ def outline_defense_node(state: OutlineState):
             
         return {
             "defense_log": error_msg,
-            "status_message": "格式失效，遭防御节点拦截，强制回退重采..."
+            "status_message": "⚠️ 格式校验未通过，遭到防御节点拦截，正在尝试自动重构大纲..."
         }
+
 
 def outline_critic(state: OutlineState):
     """大纲审计节点"""
@@ -277,7 +301,8 @@ def outline_critic(state: OutlineState):
             "review_log": audit_data.get("audit_log", ""),
             "is_approved": is_ok,
             "audit_count": int(count) + 1,
-            "status_message": "剧本审计完成。",
+            "status_message": "🎭 剧本审计完成，正在检查大纲内容与世界观素材的锚定真实性...",
+
             "llm_interactions": {
                 "critic": {
                     "prompt": prompt,
@@ -320,7 +345,7 @@ def outline_saver(state: OutlineState):
         "iterations": state.get('iterations', 0) # Keep iterations in record
     }
     
-    with open('outlines_db.json', 'a', encoding='utf-8') as f:
+    with open(get_db_path("outlines_db.json"), 'a', encoding='utf-8') as f:
         f.write(json.dumps(db_record, ensure_ascii=False) + "\n")
     
     # 2. 自动化触发 SKILL 转换 (分布式切片)
@@ -386,7 +411,8 @@ def grounding_audit_node(state: OutlineState):
         return {
             "review_log": new_log,
             "is_approved": is_grounded and state.get('is_approved', False), # 必须同时通过逻辑审计
-            "status_message": f"素材锚定审计完成。置信分: {audit_res.get('valid_score')}/100",
+            "status_message": f"🧪 素材锚定审计完成 (置信分: {audit_res.get('valid_score')}/100)，正在执行最后一道工序：实体名规范化审计...",
+
             "llm_interactions": {
                 "grounding_audit": {
                     "prompt": prompt,
@@ -505,7 +531,9 @@ TASK: 请输出该实体的完整 JSON 设定，必须匹配模板字段。
 # Graph Definition
 # ==========================================
 workflow = StateGraph(OutlineState)
+workflow.add_node("retriever", outline_retriever) # 新增检索节点
 workflow.add_node("planner", outline_planner)
+
 workflow.add_node("defense", outline_defense_node)
 workflow.add_node("critic", outline_critic)
 workflow.add_node("grounding_audit", grounding_audit_node) # 新增锚定审计
@@ -513,8 +541,10 @@ workflow.add_node("entity_sentinel", entity_sentinel_node)
 workflow.add_node("human", human_gate)
 workflow.add_node("saver", outline_saver)
 
-workflow.add_edge(START, "planner")
+workflow.add_edge(START, "retriever")
+workflow.add_edge("retriever", "planner")
 workflow.add_edge("planner", "defense")
+
 
 def route_after_defense(state: OutlineState):
     log = str(state.get("defense_log") or "")

@@ -74,3 +74,11 @@
 * **实时监控 (Monitoring)**：生产环境必须通过 Prometheus 监控 Token 消耗及请求延迟，防止因资源枯竭导致的服务中断。
 * **异常告警 (Alerting)**：任何未捕获的运行时异常必须自动上报至 Sentry，实现快速定位与自愈。
 * **Token 治理**：严格监控 `llm_token_usage_total`，优化 Prompt 结构以维持长篇创作的经济性。
+
+---
+
+### 7. 测试与验证理念 (Testing Philosophy)
+
+> [!IMPORTANT]
+> **测试的目的是找出系统的错误与问题，并且是尽可能发现系统的漏洞与可能的存在的缺陷，不是为了逃避错误与问题。**
+> (The true purpose of testing is to discover errors and vulnerabilities, not to avoid them.)

@@ -70,33 +70,69 @@ class AgentState(TypedDict):
 
 ---
 
+### 5.3 语义检索架构 (Semantic Search)
+为了解决传统关键词过滤的局限性，系统引入了基于向量数据库的异步语义检索：
+- **后端支持**: `app_api.py` 的 `/api/search` 接口通过 ChromaDB 进行相似度检索，返回带有 `id` 和 `type` 的标准化 JSON。
+- **前端集成**: 在 Lore DB 页面提供“语义搜索”开关，开启后 UI 将通过异步请求后端检索替代本地过滤，支持跨层级的实体发现。
+
+---
+
 ## 6. 小说大纲 Agent (第二工作流)
 
 小说大纲 Agent 遵循类似的 0-4 架构，但侧重于叙事结构。
 - **JSON Schema 强制执行**：大纲 Agent 严格绑定到专业的小说大纲模式，包含 `meta_info`、`core_hook`、`character_roster` 和 `plot_beats`。
+- **人机交互工作流 (HITL)**：
+    - **异步流式响应**: UI 通过 `httpx.stream` 实时监听 Agent 节点状态。
+    - **中断与恢复**: 利用 LangGraph 的 `interrupt` 机制，Agent 在生成初稿后挂起并返回 `proposal`。
+    - **指令化恢复**: UI 通过发送包含 `resume_input` (如 "批准" 或修改意见) 的请求，向 Graph 发送 `Command` 以恢复执行。
 
 ---
 
 ## 7. 全链路展示与观测 (Observability)
+ 
+ 系统通过增强的健康检查与后端采集提供深度观测：
+- **实时进度反馈**: 
+    - **节点化粒度**: 每一个 LangGraph 节点（如 `retriever`, `planner`, `defense` 等）都会更新 `status_message` 状态。
+    - **RAG 独立化**: 将耗时较长的“知识库检索”步骤独立为 `retriever` 节点，确保用户能明确区分“搜索中”与“构思中”。
+    - **流式传输**: 后端通过 NDJSON 格式实时推送节点更新和心跳信号，前端 UI 动态渲染当前状态。
+- **韧性与自愈**:
+    - **429 自动修复**: 在 API 层面实现 API KEY 自动轮换机制（支持多达 5 次重试）。
+    - **连接保持**: 引入 5 秒心跳机制，防止长耗时 RAG 任务导致 HTTP 连接超时。
+- **监控集成**:
+    - **Sentry**: 实时捕捉后端异常。
+    - **LangFuse**: 追踪 LangGraph 执行流，监控 Token 消耗。
+    - **Prometheus + Grafana**: 采集系统指标与自定义业务指标。
+- **实时健康检查**: `/api/system/health` 实时探测数据库连通性并提供中文化反馈。
 
-系统通过增强的健康检查与后端采集提供深度观测：
-1. **Sentry**：实时捕捉后端异常（需手动安装 `sentry-sdk`）。
-2. **LangFuse**：追踪 LangGraph 执行流，监控 Token 消耗。
-3. **Prometheus + Grafana**：采集系统指标与自定义业务指标。
-4. **实时健康检查**：`/api/system/health` 实时探测 MongoDB 与 ChromaDB 的连通性，并在仪表盘中提供中文化的状态反馈（如：`已连接`、`断开 (服务未启动)`）。
+---
+
+## 8. 测试与验证原则 (Testing & Verification)
+
+> [!IMPORTANT]
+> **测试的目的是找出系统的错误与问题，并且是尽可能发现系统的漏洞与可能的存在的缺陷，不是为了逃避错误与问题。**
 
 ---
 
 ## 8. 项目文件映射
 
-| 组件 | 职责 | 相关文件 |
-| :--- | :--- | :--- |
-| **逻辑引擎 (世界观)** | 图执行与状态流 | `worldview_agent_langgraph.py` |
-| **逻辑引擎 (大纲)** | 小说大纲生成图 | `novel_outline_agent_langgraph.py` |
-| **API 路由与指标** | 多代理请求处理与 Prometheus | `app_api.py` |
-| **Web 仪表盘** | 多代理 UI 与 JSON 渲染 | `dashboard.html` |
-| **观测配置** | Sentry, LangFuse, Prometheus 基础设施 | `observability/`, `config_utils.py` |
-| **架构规则** | 0-4 架构定义 | `info.md`, `novel_outline_info.md` |
-| **知识库** | 完整世界设定与档案 | `worldview_db.json` |
-| **向量索引** | ChromaDB 持久化 | `./chroma_db/` |
-| **Agent 技能** | 上下文级指南 | `.gemini/skills/` |
+| 组件 | 职责 | 相关文件 | 状态 |
+| :--- | :--- | :--- | :--- |
+| **逻辑引擎 (世界观)** | 图执行与状态流，含进度日志 | `worldview_agent_langgraph.py` | ✅ 已优化 |
+| **逻辑引擎 (大纲)** | 独立检索节点，含进度日志 | `novel_outline_agent_langgraph.py` | ✅ 已优化 |
+| **逻辑引擎 (正文)** | RAG 节点拆分，语境对齐 | `writing_execution_agent_langgraph.py` | ✅ 已优化 |
+| **逻辑引擎 (导入)** | 文件解析与分篇，含进度日志 | `worldview_import_agent.py` | ✅ 已优化 |
+| **API 路由与韧性** | 异步流、429 轮换、心跳 | `app_api.py` | 🏗️ 优化中 |
+| **Web 仪表盘** | 动态进度渲染与 JSON 预览 | `dashboard.html` | 🏗️ 待对接 |
+| **架构规则** | 0-4 架构与最高禁令 | `info.md`, `novel_outline_info.md` | ✅ 已定义 |
+| **向量索引** | 跨项目隔离的 ChromaDB | `./chroma_db/` | ✅ 已实现 |
+
+---
+
+## 10. 开发协议 (Development Protocol)
+
+> [!IMPORTANT]
+> **文档先行 (Documentation First):**
+> 在添加任何新功能或 UI 页面之前，**必须**先执行以下步骤：
+> 1. **更新技术文档**: 在 `technical_design.md` 中明确描述新功能/页面的目的。
+> 2. **影响分析**: 文档化该功能对现有状态、数据库或 Agent 逻辑的下游影响。
+> 3. **功能分解**: 将功能分解为原子任务（UI、API、数据、验证）。

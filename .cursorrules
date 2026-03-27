@@ -1,0 +1,29 @@
+# Novel Agent Project Rules
+
+## 1. Development Protocol (Mandatory)
+
+> [!IMPORTANT]
+> **Documentation First (文档先行)**
+> 
+> Before adding any new feature, API endpoint, or UI page, the following steps **MUST** be performed:
+> 
+> 1. **Update Technical Documentation**: 
+>    - Document the new feature/page in `technical_design.md` (and `technical_design_ZH.md`).
+>    - Explain the purpose, implementation details, and any architectural changes.
+> 
+> 2. **Impact Analysis & Decomposition**:
+>    - Explain the impact on existing state (`AgentState`), databases (JSONL/ChromaDB), and Agent workflows.
+>    - Decompose the task into atomic sub-tasks (UI, API, Data, Verification).
+> 
+> 3. **Rule Synchronization**:
+>    - If the feature introduces new constraints or patterns, update the relevant `SKILL.md` files in `.gemini/skills/`.
+
+## 2. Technical Stack
+- **Frontend**: NiceGUI (Python-based).
+- **Backend Handlers**: `app_api.py` (Flask-style handlers, though embedded in context).
+- **Logic**: LangGraph (State-machine guided workflows).
+- **Data**: JSONL for archival, ChromaDB for vector retrieval.
+
+## 3. Core Architectures
+- **0-4 Architecture**: All Agent outputs must adhere to the 0-4 structured logic defined in `info.md`.
+- **Logic Closure**: "Audit-Reject-Rewrite" loops are mandatory for all content generation.
