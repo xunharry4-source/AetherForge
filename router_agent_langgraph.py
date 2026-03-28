@@ -14,7 +14,7 @@ from langgraph.graph import StateGraph, START, END
 from langgraph.checkpoint.memory import MemorySaver
 
 # Import shared utilities
-from lore_utils import get_llm, parse_json_safely
+from lore_utils import get_llm, parse_json_safely, dispatch_log
 
 # ==========================================
 # 0. State Definition
@@ -33,12 +33,13 @@ class RouterState(TypedDict):
 # Nodes Implementation
 # ==========================================
 
-def intent_classifier(state: RouterState):
+def intent_classifier(state: RouterState, config: dict):
     """
     意图识别节点 (Classification Node)
     """
+    dispatch_log(config, "正在分析用户 Query 意图...")
     query = state.get('query', '')
-    llm = get_llm(json_mode=True)
+    llm = get_llm(json_mode=True, agent_name="router")
     
     prompt = f"""你是一个小说创作引擎的中转路由（Dispatcher）。
 你的任务是分析用户的 Query，并将其分类到以下三个 Agent 之一：
@@ -58,6 +59,7 @@ def intent_classifier(state: RouterState):
 }}
 """
     response = llm.invoke(prompt)
+    dispatch_log(config, "意图识别完成，正在解析路由目标...")
     result = parse_json_safely(response.content)
     
     intent = result.get("intent", "unknown")

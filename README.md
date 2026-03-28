@@ -84,7 +84,7 @@
 ### 核心工作流
 
 1.  **Dispatcher (中转)**: 用户输入原始 Query -> 语义路由 -> 确定目标 Agent。
-2.  **Analysis (分析/0-1)**: 依据 [info.md](file:///Users/harry/Documents/git/novel_agent/info.md) 进行规则自审与 Context 检索。
+2.  **Analysis (分析/0-1)**: 依据 [info.md](./info.md) 进行规则自审与 Context 检索。
 3.  **Draft (草案/2)**: 针对不同 Agent 生成世界观提案、剧情大纲或正文场次。
 4.  **Audit (审计/3)**: 逻辑矛盾核查与能量守恒校准。
 5.  **Canon (确立/4)**: 用户确认 -> 写入 `worldview_db.json` 与向量数据库。
@@ -136,13 +136,25 @@ cd ..
 docker-compose up -d
 ```
 
-### 4. 运行主服务
+### 4. 启动系统服务
 
+由于涉及到多进程和可能的系统权限问题，建议使用您的系统 Python 预装环境启动。请分别在两个终端中运行后端与前端服务：
+
+**启动后端 API 服务：**
 ```bash
-python app_api.py
+/usr/bin/python3 app_api.py
 ```
+*   **职责**: 提供底层 Agent 逻辑、数据库管理和层级化 RAG 检索接口。
+*   **服务地址**: `http://localhost:5005`
 
-访问 `http://127.0.0.1:5005` 即可打开可视化仪表盘。
+**启动前端 UI 界面：**
+打开一个新的终端窗口：
+```bash
+/usr/bin/python3 -m streamlit run ui/main.py
+```
+*   **职责**: 提供直观的多小说并行创作工作室、大纲编辑器及设定浏览器。
+*   **服务地址**: `http://localhost:8501` (启动后会自动在浏览器中弹启)
+
 
 ---
 

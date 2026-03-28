@@ -16,7 +16,10 @@ import uuid
 import time
 import traceback
 import shutil
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional, Union
+import threading
+import queue
+from langgraph.types import Command
 from flask_cors import CORS
 from logger_utils import get_logger
 
@@ -217,15 +220,24 @@ def create_new_category():
         return jsonify({"error": str(e)}), 500
 
 # 用于存储大纲以便写作 Agent 使用 (模拟 MongoDB)
-def get_outline_by_id(outline_id):
-    if not os.path.exists(get_db_path("outlines_db.json")): return None
-    with open(get_db_path("outlines_db.json"), 'r', encoding='utf-8') as f:
-        for line in f:
-            try:
-                data = json.loads(line)
-                if data['id'] == outline_id:
-                    return data['outline']
-            except: continue
+def get_outline_by_id(outline_id: str) -> Optional[Dict[str, Any]]:
+    """获取大纲及其关联的世界观信息。"""
+    db_path = get_db_path("outlines_db.json")
+    if not os.path.exists(db_path):
+        return None
+    try:
+        with open(db_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                if not line.strip():
+                    continue
+                try:
+                    data = json.loads(line)
+                    if data.get('id') == outline_id:
+                        return data # 返回完整记录，包含 worldview_id
+                except json.JSONDecodeError:
+                    continue
+    except Exception as e:
+        logger.error(f"Error reading outlines DB: {e}")
     return None
 
 @app.route('/')
@@ -241,13 +253,14 @@ def index():
 def serve_assets(filename):
     return send_from_directory('assets', filename)
 
-def get_all_lore_items():
-    """Helper to aggregate all lore from various JSON/JSONL databases."""
+def get_all_lore_items(outline_id=None, worldview_id=None):
+    """Helper to aggregate all lore from various JSON/JSONL databases, optionally filtered by outline_id and worldview_id."""
     all_docs = []
     try:
-        # 1. Worldview (JSONL)
-        if os.path.exists(get_db_path("worldview_db.json")):
-            with open(get_db_path("worldview_db.json"), 'r', encoding='utf-8') as f:
+        # 1. Worldview (JSONL) - Namespaced
+        wv_path = get_db_path("worldview_db.json", outline_id=outline_id, worldview_id=worldview_id)
+        if os.path.exists(wv_path):
+            with open(wv_path, 'r', encoding='utf-8') as f:
                 for line in f:
                     if not line.strip(): continue
                     try:
@@ -258,31 +271,42 @@ def get_all_lore_items():
                             "name": item.get("name") or item.get("query"),
                             "content": item.get("content"),
                             "category": item.get("path") or item.get("category", "Worldview"),
-                            "timestamp": item.get("timestamp", "N/A")
+                            "timestamp": item.get("timestamp", "N/A"),
+                            "outline_id": outline_id or item.get("outline_id")
                         })
-                    except: pass
+                    except Exception as e:
+                        logger.warning(f"Failed to parse worldview line: {e}")
 
-        # 2. Outlines (JSON Array)
-        if os.path.exists(get_db_path("outlines_db.json")):
-            try:
-                with open(get_db_path("outlines_db.json"), 'r', encoding='utf-8') as f:
-                    content = f.read().strip()
-                    if content:
-                        data = json.loads(content)
-                        for item in data:
-                            all_docs.append({
-                                "id": item.get("outline_id") or item.get("id"),
-                                "type": "outline",
-                                "name": item.get("title") or item.get("query") or "未命名大纲",
-                                "content": item.get("summary") or item.get("proposal"),
-                                "category": f"Outlines > {item.get('book_title') or 'Novel'}",
-                                "timestamp": item.get("timestamp", "N/A")
-                            })
-            except: pass
+        # 2. Outlines (JSONL) - Special handling as they are the root of projects
+        outlines_path = get_db_path("outlines_db.json") # Global outlines registry
+        if os.path.exists(outlines_path):
+            with open(outlines_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    if not line.strip(): continue
+                    try:
+                        item = json.loads(line)
+                        curr_wid = item.get("worldview_id") or "default_wv"
+                        if worldview_id and curr_wid != worldview_id:
+                            continue
+                        if outline_id and curr_oid != outline_id:
+                            continue
+                        all_docs.append({
+                            "id": curr_oid,
+                            "type": "outline",
+                            "name": item.get("name") or item.get("title") or item.get("query") or "未命名大纲",
+                            "content": item.get("content") or item.get("summary") or item.get("proposal"),
+                            "category": f"Outlines > {item.get('book_title') or 'Novel'}",
+                            "timestamp": item.get("timestamp", "N/A"),
+                            "outline_id": curr_oid,
+                            "worldview_id": curr_wid
+                        })
+                    except Exception as e:
+                        logger.warning(f"Failed to parse outline line: {e}")
 
-        # 3. Prose (JSONL)
-        if os.path.exists(get_db_path("prose_db.json")):
-            with open(get_db_path("prose_db.json"), 'r', encoding='utf-8') as f:
+        # 3. Prose (JSONL) - Namespaced
+        prose_path = get_db_path("prose_db.json", outline_id=outline_id, worldview_id=worldview_id)
+        if os.path.exists(prose_path):
+            with open(prose_path, 'r', encoding='utf-8') as f:
                 for line in f:
                     if not line.strip(): continue
                     try:
@@ -293,18 +317,21 @@ def get_all_lore_items():
                             "name": item.get("title") or item.get("scene_title") or item.get("query"),
                             "content": item.get("content"),
                             "category": "Proses",
-                            "timestamp": item.get("timestamp", "N/A")
+                            "timestamp": item.get("timestamp", "N/A"),
+                            "outline_id": outline_id or item.get("outline_id"),
+                            "worldview_id": worldview_id or item.get("worldview_id") or "default_wv"
                         })
-                    except: pass
+                    except Exception as e:
+                        logger.warning(f"Failed to parse prose line: {e}")
                     
-        # 4. Entity Drafts (JSONL) - Pending review but part of the conceptual relationship
-        if os.path.exists(get_db_path("entity_drafts_db.json")):
-            with open(get_db_path("entity_drafts_db.json"), 'r', encoding='utf-8') as f:
+        # 4. Entity Drafts (JSONL) - Namespaced
+        draft_path = get_db_path("entity_drafts_db.json", outline_id=outline_id, worldview_id=worldview_id)
+        if os.path.exists(draft_path):
+            with open(draft_path, 'r', encoding='utf-8') as f:
                 for line in f:
                     if not line.strip(): continue
                     try:
                         item = json.loads(line)
-                        # Build content from source_context + entity_card (drafts don't have description/proposal)
                         draft_content_parts = []
                         if item.get('source_context'):
                             draft_content_parts.append(f"**来源上下文**: {item.get('source_context')}")
@@ -318,25 +345,41 @@ def get_all_lore_items():
                             "name": item.get('name'),
                             "content": draft_content,
                             "category": f"Drafts > {item.get('category', 'Uncategorized')}",
-                            "timestamp": item.get("timestamp", "N/A")
+                            "timestamp": item.get("timestamp", "N/A"),
+                            "outline_id": outline_id or item.get("outline_id"),
+                            "worldview_id": worldview_id or item.get("worldview_id") or "default_wv"
                         })
-                    except: pass
+                    except Exception as e:
+                        logger.warning(f"Failed to parse draft line: {e}")
                     
     except Exception as e:
-        print(f"[API ERROR] get_all_lore_items: {e}")
+        logger.error(f"[API ERROR] get_all_lore_items: {e}")
         
     all_docs.reverse() # Show newest first
     return all_docs
 
+@app.route('/api/lore/list', methods=['GET'])
+def api_list_lore():
+    """Route to list all lore items, supporting filtering."""
+    oid = request.args.get('outline_id')
+    wid = request.args.get('worldview_id')
+    items = get_all_lore_items(outline_id=oid, worldview_id=wid)
+    return jsonify(items)
+
 @app.route('/api/lore', methods=['GET'])
 def get_lore():
-    return jsonify(get_all_lore_items())
+    outline_id = request.args.get('outline_id')
+    worldview_id = request.args.get('worldview_id')
+    return jsonify(get_all_lore_items(outline_id=outline_id, worldview_id=worldview_id))
 
 @app.route('/api/lore/tree', methods=['GET'])
 def get_lore_tree():
     """Returns lore organized in a tree structure by category."""
-    all_docs = get_all_lore_items()
-    tree_data = {"name": "Root", "children": {}, "entries": []}
+    outline_id = request.args.get('outline_id')
+    worldview_id = request.args.get('worldview_id')
+    all_docs = get_all_lore_items(outline_id=outline_id, worldview_id=worldview_id)
+    # Type hint for Pyre
+    tree_data: Dict[str, Any] = {"name": "Root", "children": {}, "entries": []}
     
     for doc in all_docs:
         cat_path = doc.get("category", "Uncategorized")
@@ -344,9 +387,10 @@ def get_lore_tree():
         
         curr = tree_data
         for part in parts:
-            if part not in curr["children"]:
-                curr["children"][part] = {"name": part, "children": {}, "entries": []}
-            curr = curr["children"][part]
+            children: Dict[str, Any] = curr["children"]
+            if part not in children:
+                children[part] = {"name": part, "children": {}, "entries": []}
+            curr = children[part]
         
         curr["entries"].append(doc)
     
@@ -361,18 +405,21 @@ def get_lore_tree():
 @app.route('/api/lore/mindmap', methods=['GET'])
 def get_lore_mindmap():
     """Returns lore in Markdown format for mindmap visualization."""
-    all_docs = get_all_lore_items()
+    outline_id = request.args.get('outline_id')
+    worldview_id = request.args.get('worldview_id')
+    all_docs = get_all_lore_items(outline_id=outline_id, worldview_id=worldview_id)
     # Build internal tree first
-    tree_data = {"name": "PGA 万象星际全息关系图", "children": {}, "entries": []}
+    tree_data: Dict[str, Any] = {"name": "PGA 万象星际全息关系图", "children": {}, "entries": []}
     for doc in all_docs:
         cat_path = doc.get("category", "Uncategorized")
         # Split by > or /
         parts = [p.strip() for p in re.split(r'[>/]', cat_path)]
         curr = tree_data
         for part in parts:
-            if part not in curr["children"]:
-                curr["children"][part] = {"name": part, "children": {}, "entries": []}
-            curr = curr["children"][part]
+            children: Dict[str, Any] = curr["children"]
+            if part not in children:
+                children[part] = {"name": part, "children": {}, "entries": []}
+            curr = children[part]
         curr["entries"].append(doc)
 
     def to_markdown(node, level=0):
@@ -392,7 +439,9 @@ def get_lore_mindmap():
 @app.route('/api/lore/entity-graph/<doc_id>', methods=['GET'])
 def get_entity_graph(doc_id):
     """Returns a local relationship graph around a specific entity."""
-    all_docs = get_all_lore_items()
+    outline_id = request.args.get('outline_id')
+    worldview_id = request.args.get('worldview_id')
+    all_docs = get_all_lore_items(outline_id=outline_id, worldview_id=worldview_id)
     target = next((d for d in all_docs if d['id'] == doc_id), None)
     if not target:
         # Try finding by name if ID in URL is actually a name (for deep links)
@@ -448,7 +497,9 @@ def get_entity_graph(doc_id):
 @app.route('/api/lore/export/opml', methods=['GET'])
 def export_lore_opml():
     """Exports all lore as an OPML file."""
-    all_docs = get_all_lore_items()
+    outline_id = request.args.get('outline_id')
+    worldview_id = request.args.get('worldview_id')
+    all_docs = get_all_lore_items(outline_id=outline_id, worldview_id=worldview_id)
     tree_data = {"name": "PGA Worldview", "children": {}, "entries": []}
     for doc in all_docs:
         cat_path = doc.get("category", "Uncategorized")
@@ -493,17 +544,14 @@ def update_archive():
     new_name = data.get('name')
     category = data.get('category')
     
-    if not item_id or not item_type or new_content is None:
-        return jsonify({
-            "error": "Missing required fields",
-            "received": {"id": item_id, "type": item_type, "has_content": new_content is not None}
-        }), 400
+    outline_id = data.get('outline_id')
+    worldview_id = data.get('worldview_id')
     
     filename = {
-        'worldview': get_db_path("worldview_db.json"),
+        'worldview': get_db_path("worldview_db.json", outline_id=outline_id, worldview_id=worldview_id),
         'outline': get_db_path("outlines_db.json"),
-        'prose': get_db_path("prose_db.json"),
-        'entity-draft': get_db_path("entity_drafts_db.json"),
+        'prose': get_db_path("prose_db.json", outline_id=outline_id, worldview_id=worldview_id),
+        'entity-draft': get_db_path("entity_drafts_db.json", outline_id=outline_id, worldview_id=worldview_id),
     }.get(str(item_type))
     
     if not filename:
@@ -526,7 +574,7 @@ def update_archive():
                         elif item_type == 'prose':
                             current_id = item.get('scene_id') or item.get('id')
                         elif item_type == 'outline':
-                            current_id = item.get('id') or item.get('outline_id')
+                            current_id = item.get('outline_id') or item.get('id')
                         elif item_type == 'entity-draft':
                             current_id = item.get('id') or item.get('doc_id')
                         
@@ -552,7 +600,8 @@ def update_archive():
                         else:
                             if not line.endswith('\n'): line += '\n'
                             new_lines.append(line)
-                    except:
+                    except Exception as e:
+                        logger.warning(f"Failed to parse line during update: {e}")
                         if not line.endswith('\n'): line += '\n'
                         new_lines.append(line)
         except Exception as e:
@@ -567,7 +616,7 @@ def update_archive():
             # 同步更新
             try:
                 from lore_utils import sync_archive_to_all_stores
-                sync_archive_to_all_stores(item_id, item_type, new_content, name=new_name)
+                sync_archive_to_all_stores(item_id, item_type, new_content, name=new_name, outline_id=outline_id, worldview_id=worldview_id)
             except Exception as e:
                 print(f"[API] Sync error: {e}")
                 
@@ -594,9 +643,10 @@ def update_archive():
                 if new_content.strip().startswith('{'):
                     try:
                         new_item['outline'] = json.loads(new_content)
-                        if 'title' in new_item['outline']:
+                        if isinstance(new_item['outline'], dict) and 'title' in new_item['outline']:
                             new_item['name'] = new_item['outline']['title']
-                    except: pass
+                    except Exception as e:
+                        logger.warning(f"Failed to parse JSON content for outline: {e}")
             elif item_type == 'entity-draft':
                 new_item["id"] = item_id
                 new_item["status"] = data.get("status", "pending")
@@ -607,7 +657,7 @@ def update_archive():
             # 同步新条目
             try:
                 from lore_utils import sync_archive_to_all_stores
-                sync_archive_to_all_stores(item_id, item_type, new_content, name=new_item['name'])
+                sync_archive_to_all_stores(item_id, item_type, new_content, name=new_item['name'], outline_id=outline_id, worldview_id=worldview_id)
             except Exception as e:
                 print(f"[API] Sync error: {e}")
                 
@@ -621,15 +671,17 @@ def delete_archive():
     data = request.json or {}
     item_id = data.get('id')
     item_type = data.get('type')
+    outline_id = data.get('outline_id')
+    worldview_id = data.get('worldview_id')
     
     if not item_id or not item_type:
         return jsonify({"error": "Missing id or type"}), 400
         
     filename = {
-        'worldview': get_db_path("worldview_db.json"),
+        'worldview': get_db_path("worldview_db.json", outline_id=outline_id, worldview_id=worldview_id),
         'outline': get_db_path("outlines_db.json"),
-        'prose': get_db_path("prose_db.json"),
-        'entity-draft': get_db_path("entity_drafts_db.json"),
+        'prose': get_db_path("prose_db.json", outline_id=outline_id, worldview_id=worldview_id),
+        'entity-draft': get_db_path("entity_drafts_db.json", outline_id=outline_id, worldview_id=worldview_id),
     }.get(str(item_type))
     
     if not filename or not os.path.exists(filename):
@@ -652,7 +704,8 @@ def delete_archive():
                     
                     if not line.endswith('\n'): line += '\n'
                     new_lines.append(line)
-                except:
+                except Exception as e:
+                    logger.warning(f"Failed to parse line during delete: {e}")
                     if not line.endswith('\n'): line += '\n'
                     new_lines.append(line)
         
@@ -663,7 +716,7 @@ def delete_archive():
             # 同步删除向量索引
             try:
                 from lore_utils import delete_lore_vector
-                delete_lore_vector(item_id)
+                delete_lore_vector(item_id, outline_id=outline_id, worldview_id=worldview_id)
             except Exception as e:
                 print(f"[API] Vector delete error: {e}")
             
@@ -715,17 +768,27 @@ def agent_query():
             return jsonify(dict(state_snapshot.values))
 
     # 2. 状态初始化
+    current_worldview = data.get('worldview_id') or 'default_wv'
+    
     if agent_type == 'writing':
-        outline_id = query
-        outline_content = get_outline_by_id(outline_id)
-        if not outline_content:
-            return jsonify({"error": f"大纲 ID '{outline_id}' 不存在"}), 400
+        outline_id = data.get('outline_id') or query
+        record = get_outline_by_id(outline_id)
+        if not record:
+            return jsonify({"error": f"大纲/项目 ID '{outline_id}' 不存在"}), 400
+        
+        project_meta = record.get('outline', {})
+        wv_id = record.get('worldview_id') or current_worldview
+        
+        novel_summary = project_meta.get('summary') or project_meta.get('content') or ""
+        outline_details = project_meta.get('outline') or {}
         
         input_state = {
+            "worldview_id": wv_id,
             "outline_id": outline_id,
-            "outline_content": json.dumps(outline_content, ensure_ascii=False),
+            "outline_content": json.dumps(outline_details, ensure_ascii=False) if outline_details else novel_summary,
+            "novel_summary": novel_summary,
             "current_act": "第一幕",
-            "status_message": "启动中，正在拆解场次...",
+            "status_message": f"启动中 (世界观: {wv_id})，正在依大纲拆解场次...",
             "active_scene_index": 0,
             "scene_list": [],
             "context_data": "",
@@ -740,15 +803,31 @@ def agent_query():
             "visual_description_summary": ""
         }
     elif agent_type == 'worldview':
+        outline_id = data.get('outline_id', 'default')
         input_state = {
-            "query": query, "context": "", "proposal": "", "review_log": "", "user_feedback": "",
+            "query": query, "worldview_id": current_worldview, "outline_id": outline_id, 
+            "context": "", "proposal": "", "review_log": "", "user_feedback": "",
             "iterations": 0, "audit_count": 0, "is_approved": False, "category": "", "doc_id": "",
-            "status_message": "正在启动万象星际探查..."
+            "status_message": f"正在启动万象星际探查 (Worldview: {current_worldview}, Project: {outline_id})..."
         }
     else: # outline
+        outline_id = data.get('outline_id') or f"pga_{str(uuid.uuid4())[:8]}"
+        record = get_outline_by_id(outline_id)
+        
+        wv_id = current_worldview
+        novel_summary = ""
+        if record:
+            wv_id = record.get('worldview_id') or current_worldview
+            novel_summary = record.get('outline', {}).get('summary', "")
+        
         input_state = {
-            "query": query, "context": "", "proposal": "", "review_log": "", "user_feedback": "",
-            "iterations": 0, "audit_count": 0, "is_approved": False, "status_message": "正在生成小说大纲提案..."
+            "query": query, 
+            "worldview_id": wv_id,
+            "outline_id": outline_id, 
+            "novel_summary": novel_summary,
+            "context": "", "proposal": "", "review_log": "", "user_feedback": "",
+            "iterations": 0, "audit_count": 0, "is_approved": False, 
+            "status_message": f"正在生成小说大纲提案 (ID: {outline_id}, Worldview: {wv_id})..."
         }
     
     stream_input = Command(resume=resume_input) if resume_input else input_state
@@ -761,7 +840,10 @@ def agent_query():
             for attempt in range(max_retries + 1):
                 try:
                     langfuse_handler = get_langfuse_callback()
+                    from lore_utils import AtomicLogHandler
+                    atomic_handler = AtomicLogHandler(lambda msg: q.put({"type": "node_update", "node": "atomic", "status_message": msg}))
                     config_callbacks = [langfuse_handler] if langfuse_handler else []
+                    config_callbacks.append(atomic_handler)
                     local_config = {**config, "callbacks": config_callbacks}
 
                     for event in agent_app.stream(stream_input, config=local_config, stream_mode="updates"):
@@ -851,7 +933,10 @@ def agent_batch_write():
             for attempt in range(max_retries + 1):
                 try:
                     langfuse_handler = get_langfuse_callback()
+                    from lore_utils import AtomicLogHandler
+                    atomic_handler = AtomicLogHandler(lambda msg: q.put({"type": "node_update", "node": "atomic", "status_message": msg}))
                     config_callbacks = [langfuse_handler] if langfuse_handler else []
+                    config_callbacks.append(atomic_handler)
                     local_config = {**config, "callbacks": config_callbacks}
                     for event in writing_app.stream(input_state, config=local_config, stream_mode="updates"):
                         for node_name, node_data in event.items():
@@ -952,7 +1037,8 @@ def search_lore(retry=True):
 
     try:
         from lore_utils import get_vector_store, get_lore_by_doc_id
-        vector_store = get_vector_store()
+        outline_id = data.get('outline_id')
+        vector_store = get_vector_store(outline_id=outline_id)
         if not vector_store:
             print("[SEARCH ERROR] Vector store initialization failed.")
             return jsonify([])
@@ -973,7 +1059,7 @@ def search_lore(retry=True):
                 continue
                 
             # 3. 扩展回 Parent (获取完整设定内容)
-            parent_entity = get_lore_by_doc_id(target_id)
+            parent_entity = get_lore_by_doc_id(target_id, outline_id=outline_id)
             if parent_entity:
                 formatted.append({
                     "id": target_id,
@@ -1027,7 +1113,8 @@ def get_snapshots(outline_id):
 def list_entity_drafts():
     """获取待审实体列表"""
     status = request.args.get('status', 'pending')
-    drafts = get_draft_entities(status_filter=status if status != 'all' else None)
+    outline_id = request.args.get('outline_id')
+    drafts = get_draft_entities(status_filter=status if status != 'all' else None, outline_id=outline_id)
     return jsonify(drafts)
 
 @app.route('/api/entity-drafts/approve', methods=['POST'])
@@ -1036,7 +1123,8 @@ def approve_entity():
     data = request.get_json()
     if not data or 'name' not in data:
         return jsonify({"error": "缺少 name 参数"}), 400
-    success = approve_draft_entity(data['name'])
+    outline_id = data.get('outline_id')
+    success = approve_draft_entity(data['name'], outline_id=outline_id)
     if success:
         return jsonify({"status": "approved", "name": data['name']})
     
@@ -1053,13 +1141,16 @@ def reject_entity():
     if not data or 'name' not in data:
         return jsonify({"error": "缺少 name 参数"}), 400
     
+    outline_id = data.get('outline_id')
+    db_path = get_db_path("entity_drafts_db.json", outline_id=outline_id)
+    
     # 更新草案库中的状态为 rejected
-    if not os.path.exists(get_db_path("entity_drafts_db.json")):
+    if not os.path.exists(db_path):
         return jsonify({"error": "草案库不存在"}), 404
     
     all_drafts = []
     found = False
-    with open(get_db_path("entity_drafts_db.json"), 'r', encoding='utf-8') as f:
+    with open(db_path, 'r', encoding='utf-8') as f:
         for line in f:
             if not line.strip(): continue
             d = json.loads(line)
@@ -1074,7 +1165,7 @@ def reject_entity():
         
     # 重要：必须写回文件
     try:
-        with open(get_db_path("entity_drafts_db.json"), 'w', encoding='utf-8') as f:
+        with open(db_path, 'w', encoding='utf-8') as f:
             for draft in all_drafts:
                 f.write(json.dumps(draft, ensure_ascii=False) + "\n")
         return jsonify({"status": "rejected", "name": data['name']})
@@ -1089,7 +1180,8 @@ def batch_approve():
     if not data or 'names' not in data:
         return jsonify({"error": "缺少 names 参数"}), 400
     
-    results = batch_approve_draft_entities(data['names'])
+    outline_id = data.get('outline_id')
+    results = batch_approve_draft_entities(data['names'], outline_id=outline_id)
     return jsonify(results)
 
 @app.route('/api/entity-drafts/batch-reject', methods=['POST'])
@@ -1099,7 +1191,8 @@ def batch_reject():
     if not data or 'names' not in data:
         return jsonify({"error": "缺少 names 参数"}), 400
     
-    results = batch_reject_draft_entities(data['names'])
+    outline_id = data.get('outline_id')
+    results = batch_reject_draft_entities(data['names'], outline_id=outline_id)
     return jsonify(results)
 
 @app.route('/api/entity-drafts/refine', methods=['POST'])
@@ -1108,12 +1201,13 @@ def refine_entity():
     data = request.get_json()
     name = data.get('name')
     feedback = data.get('feedback')
+    outline_id = data.get('outline_id')
     
     if not name or not feedback:
         return jsonify({"error": "缺少 name 或 feedback 参数"}), 400
     
     # 查找原始草案
-    drafts = get_draft_entities(status_filter=None)
+    drafts = get_draft_entities(status_filter=None, outline_id=outline_id)
     target_draft = next((d for d in drafts if d['name'] == name), None)
     if not target_draft:
         return jsonify({"error": f"未找到实体草案: {name}"}), 404
@@ -1126,7 +1220,8 @@ def refine_entity():
         "proposal": json.dumps(target_draft.get("entity_card", {}), ensure_ascii=False),
         "user_feedback": feedback,
         "category": target_draft.get("type", "general"),
-        "iterations": 1
+        "iterations": 1,
+        "outline_id": outline_id  # Ensure project context for the agent
     }
     
     def generate():
@@ -1185,10 +1280,14 @@ def import_process():
                 "status_message": "后台已接收导入请求，正在解析文档..."
             })
             
+            outline_id = data.get("outline_id", "default")
             max_retries = 5
             for attempt in range(max_retries + 1):
                 try:
-                    for output in import_app.stream({"file_path": file_path}, stream_mode="updates"):
+                    from lore_utils import AtomicLogHandler
+                    atomic_handler = AtomicLogHandler(lambda msg: q.put({"type": "node_update", "node": "atomic", "status_message": msg}))
+                    local_config = {"callbacks": [atomic_handler]}
+                    for output in import_app.stream({"file_path": file_path, "outline_id": outline_id}, config=local_config, stream_mode="updates"):
                         for node_name, node_data in output.items():
                             status_msg = node_data.get("status_message")
                             if not status_msg:
@@ -1333,7 +1432,7 @@ def system_health():
     return jsonify(health)
 
 @app.route('/api/system/logs', methods=['GET'])
-def system_logs():
+def system_logs() -> Response:
     """Reads the tail of the log file."""
     limit = request.args.get('limit', default=100, type=int)
     log_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs', 'novel_agent.log')
@@ -1355,6 +1454,167 @@ def get_llm_info():
     """Returns metadata about the currently active LLM provider."""
     from llm_factory import get_provider_info
     return jsonify(get_provider_info())
+
+@app.route('/api/config', methods=['GET'])
+def get_full_config():
+    """Returns the full configuration for the settings UI."""
+    from config_utils import load_config
+    return jsonify(load_config())
+
+@app.route('/api/config', methods=['POST'])
+def update_full_config():
+    """Updates the config.json file."""
+    from config_utils import save_config
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No data provided"}), 400
+    
+    success = save_config(data)
+    if success:
+        return jsonify({"status": "success"})
+    else:
+        return jsonify({"error": "Failed to save config"}), 500
+
+@app.route('/api/config/usage', methods=['GET'])
+def get_usage_stats():
+    """Returns the agent usage statistics."""
+    from usage_utils import load_usage
+    return jsonify(load_usage())
+
+@app.route('/api/worldviews/list', methods=['GET'])
+def list_worldviews():
+    """Returns a list of all independent worldviews."""
+    db_path = get_db_path("worldviews_registry.json")
+    worldviews = []
+    
+    # Default Worldview for legacy/orphan data
+    worldviews.append({
+        "worldview_id": "default_wv",
+        "name": "默认世界观 (Default Worldview)",
+        "summary": "系统的初始宇宙设定。所有未归类的大纲将默认关联至此。",
+        "timestamp": "N/A"
+    })
+    
+    if os.path.exists(db_path):
+        try:
+            with open(db_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        data = json.loads(line)
+                        worldviews.append(data)
+        except Exception as e:
+            logger.error(f"Error reading worldviews_registry.json: {e}")
+            
+    return jsonify(worldviews)
+
+@app.route('/api/worldviews/create', methods=['POST'])
+def create_worldview():
+    """Creates a new independent worldview container."""
+    data = request.json
+    name = data.get('name', '新世界观')
+    summary = data.get('summary', '')
+    
+    wv_id = f"wv_{uuid.uuid4().hex[:8]}"
+    db_path = get_db_path("worldviews_registry.json")
+    
+    import datetime
+    new_entry = {
+        "worldview_id": wv_id,
+        "name": name,
+        "summary": summary,
+        "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+    
+    try:
+        # Initialize directory by calling get_db_path
+        get_db_path("worldview_db.json", worldview_id=wv_id)
+        
+        with open(db_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(new_entry, ensure_ascii=False) + "\n")
+            
+        return jsonify({"status": "success", "worldview_id": wv_id, "name": name})
+    except Exception as e:
+        logger.error(f"Failed to create new worldview: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/outlines/list', methods=['GET'])
+def list_outlines():
+    """Returns a list of all available outlines (novels)."""
+    db_path = get_db_path("outlines_db.json")
+    outlines = []
+    
+    # Add a default project entry for legacy data
+    outlines.append({
+        "outline_id": "default",
+        "title": "默认项目 (Default Project)",
+        "summary": "系统的默认工作区。所有未归类或遗留的世界观及剧情资料都将优先保存在此处。",
+        "timestamp": "N/A"
+    })
+    
+    if os.path.exists(db_path):
+        try:
+            with open(db_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        data = json.loads(line)
+                        oid = data.get("outline_id") or data.get("id")
+                        title = data.get("name") or (data.get("outline", {}).get("meta_info", {}).get("title") if isinstance(data.get("outline"), dict) else "Untitled")
+                        summary = data.get("content") or data.get("summary") or (data.get("outline", {}).get("meta_info", {}).get("summary") if isinstance(data.get("outline"), dict) else "")
+                        ts = data.get("timestamp") or data.get("last_modified") or "Unknown"
+                        
+                        if oid:
+                            outlines.append({
+                                "outline_id": oid,
+                                "worldview_id": data.get("worldview_id", "default_wv"),
+                                "title": title,
+                                "summary": summary,
+                                "timestamp": ts
+                            })
+        except Exception as e:
+            logger.error(f"Error reading outlines_db.json: {e}")
+            
+    # 如果列表里没有任何项目的 ID 为 'default'，则添加默认项目
+    if not any(o.get('outline_id') == 'default' for o in outlines):
+        outlines.insert(0, {
+            "outline_id": "default",
+            "title": "默认项目 (Default Project)",
+            "summary": "系统的默认工作区。所有未归类或遗留的世界观及剧情资料都将优先保存在此处。",
+            "timestamp": "N/A"
+        })
+        
+    return jsonify(outlines)
+
+@app.route('/api/outlines/create', methods=['POST'])
+def create_outline():
+    """Creates a new novel project (outline entry) under a specific worldview."""
+    data = request.json
+    name = data.get('name', '新小说')
+    summary = data.get('summary', '')
+    worldview_id = data.get('worldview_id', 'default_wv')
+    
+    novel_id = f"novel_{uuid.uuid4().hex[:8]}"
+    db_path = get_db_path("outlines_db.json")
+    
+    import datetime
+    new_entry = {
+        "outline_id": novel_id,
+        "worldview_id": worldview_id,
+        "name": name,
+        "summary": summary,
+        "timestamp": datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    }
+    
+    try:
+        # Create project directory to ensure isolation under the worldview
+        get_db_path("prose_db.json", outline_id=novel_id, worldview_id=worldview_id)
+        
+        with open(db_path, "a", encoding="utf-8") as f:
+            f.write(json.dumps(new_entry, ensure_ascii=False) + "\n")
+            
+        return jsonify({"status": "success", "outline_id": novel_id, "worldview_id": worldview_id, "name": name})
+    except Exception as e:
+        logger.error(f"Failed to create new novel project: {e}")
+        return jsonify({"error": str(e)}), 500
 
 if __name__ == '__main__':
     # 启动 5005 端口

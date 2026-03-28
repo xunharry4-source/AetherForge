@@ -151,9 +151,22 @@
                 <img src="assets/Aether.jpg" alt="Aether Logo" class="w-16 h-16 rounded-2xl object-cover border border-cyan-500/30 shadow-lg shadow-cyan-500/20">
                 <div>
                     <h1 class="text-4xl font-bold bg-gradient-to-r from-cyan-400 to-blue-500 bg-clip-text text-transparent">
-                        PGA 万象世界观控制台
+                        PGA 万象控制台
                     </h1>
-                    <p class="text-slate-400 mt-2 text-sm">万象星际协议体 - 核心设定管理系统</p>
+                    <div class="flex items-center gap-3 mt-2">
+                        <p class="text-slate-400 text-sm">当前小说项目:</p>
+                        <select id="project-selector" onchange="changeProject(this.value)" 
+                            class="bg-slate-900/80 border border-cyan-500/30 rounded-xl px-3 py-1.5 text-xs text-cyan-100 focus:outline-none focus:border-cyan-400 transition-all cursor-pointer shadow-lg shadow-cyan-500/10">
+                            <option value="default">默认项目 (Default)</option>
+                        </select>
+                        <button onclick="refreshProjects()" class="text-slate-500 hover:text-cyan-400 p-1 rounded-lg transition-all" title="刷新项目列表">
+                            <i data-lucide="refresh-cw" class="w-3.5 h-3.5"></i>
+                        </button>
+                        <button onclick="openCreateProjectModal()" class="flex items-center gap-1.5 bg-cyan-600/20 hover:bg-cyan-600/30 text-cyan-400 border border-cyan-500/30 rounded-lg px-2.5 py-1 text-[11px] transition-all" title="创建新小说项目">
+                            <i data-lucide="plus" class="w-3.5 h-3.5"></i>
+                            新建
+                        </button>
+                    </div>
                 </div>
             </div>
             <nav class="flex gap-4">
@@ -165,6 +178,9 @@
                 <button onclick="switchTab('template')" class="tab-btn px-4 py-2 rounded-xl text-sm font-medium transition-all">模板管理</button>
                 <button onclick="switchTab('system')" class="tab-btn px-4 py-2 rounded-xl text-sm font-medium transition-all flex items-center gap-2">
                     <i data-lucide="activity" class="w-4 h-4"></i> 系统监控
+                </button>
+                <button onclick="switchTab('config')" class="tab-btn px-4 py-2 rounded-xl text-sm font-medium transition-all flex items-center gap-2">
+                    <i data-lucide="settings" class="w-4 h-4"></i> LLM 配置
                 </button>
             </nav>
 
@@ -266,6 +282,14 @@
         <div id="agent-view" class="tab-view hidden space-y-8">
             <div class="grid grid-cols-1 lg:grid-cols-3 gap-8">
                 <div class="lg:col-span-2 glass p-8 rounded-[40px] space-y-6">
+                    <!-- Active Project Banner -->
+                    <div id="active-project-banner" class="bg-slate-900/50 border border-slate-800 p-4 rounded-3xl mb-4">
+                        <div class="animate-pulse flex items-center gap-3">
+                            <div class="w-2 h-2 rounded-full bg-slate-700"></div>
+                            <div class="h-4 bg-slate-800 rounded w-32"></div>
+                        </div>
+                    </div>
+
                     <!-- Agent Type Tabs -->
                     <div class="flex gap-2">
                         <button id="btn-agent-worldview" onclick="setAgentType('worldview')" class="agent-tab-btn active bg-cyan-600 text-white px-4 py-2 rounded-xl text-sm font-medium transition-all">世界观 Agent</button>
@@ -634,11 +658,157 @@
                 </div>
             </div>
 
+            <!-- LLM Config View -->
+        <div id="config-view" class="tab-view hidden space-y-8">
+            <div class="flex items-center gap-3 mb-8">
+                <div class="p-2 rounded-lg bg-cyan-500 text-white shadow-lg shadow-cyan-500/50"><i data-lucide="settings"></i></div>
+                <h2 class="text-2xl font-bold">LLM 配置管理</h2>
+                <p class="text-slate-500 text-sm italic">设置全局默认模型或为特定 Agent 指定模型</p>
+            </div>
+
+            <div class="glass p-8 rounded-[40px] space-y-8">
+                <!-- Global Settings -->
+                <div class="space-y-6">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-lg font-bold text-cyan-400 flex items-center gap-2">
+                            <i data-lucide="globe" class="w-5 h-5"></i> 全局默认配置 (Global Default)
+                        </h3>
+                        <div class="text-[10px] bg-cyan-500/10 text-cyan-400 px-2 py-1 rounded-md border border-cyan-500/20">FALLBACK TIER 3</div>
+                    </div>
+                    
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 bg-black/20 p-6 rounded-3xl border border-slate-800">
+                        <div class="space-y-2">
+                            <label class="text-xs text-slate-400 font-semibold uppercase tracking-wider">默认模型提供商</label>
+                            <select id="config-global-provider" class="w-full bg-slate-900 border border-slate-700/50 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-500 transition-all">
+                                <option value="openai">OpenAI (Direct/Proxy)</option>
+                                <option value="deepseek">DeepSeek Official</option>
+                                <option value="siliconflow">SiliconFlow Pro (R1/V3)</option>
+                                <option value="anthropic">Anthropic (Claude)</option>
+                                <option value="google">Google Gemini</option>
+                            </select>
+                        </div>
+                        <div class="space-y-2">
+                            <label class="text-xs text-slate-400 font-semibold uppercase tracking-wider">默认模型 ID</label>
+                            <input type="text" id="config-global-model" placeholder="e.g. gpt-4o, deepseek-chat" class="w-full bg-slate-900 border border-slate-700/50 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-500 transition-all">
+                        </div>
+                    </div>
+                </div>
+
+                <div class="h-px bg-slate-800 w-full"></div>
+
+                <!-- Usage Statistics -->
+                <div class="space-y-6">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-lg font-bold text-amber-400 flex items-center gap-2">
+                            <i data-lucide="bar-chart-3" class="w-5 h-5"></i> Agent 使用量统计 (Usage Stats)
+                        </h3>
+                        <button onclick="fetchUsageStats()" class="text-xs text-slate-500 hover:text-cyan-400 flex items-center gap-1 transition-all">
+                            <i data-lucide="refresh-cw" class="w-3 h-3"></i> 刷新数据
+                        </button>
+                    </div>
+                    
+                    <div class="overflow-hidden rounded-2xl border border-slate-800 bg-black/20">
+                        <table class="w-full text-left text-sm">
+                            <thead class="bg-slate-900/50 text-slate-400 text-[10px] uppercase tracking-wider">
+                                <tr>
+                                    <th class="px-6 py-4 font-semibold">Agent 名称</th>
+                                    <th class="px-6 py-4 font-semibold">调用次数</th>
+                                    <th class="px-6 py-4 font-semibold">输入 Token</th>
+                                    <th class="px-6 py-4 font-semibold">输出 Token</th>
+                                    <th class="px-6 py-4 font-semibold">总计 Token</th>
+                                    <th class="px-6 py-4 font-semibold text-right">最后活跃</th>
+                                </tr>
+                            </thead>
+                            <tbody id="usage-table-body" class="divide-y divide-slate-800/50 text-slate-300">
+                                <!-- Data injected here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="h-px bg-slate-800 w-full"></div>
+
+                <!-- Agent Specific Settings -->
+                <div class="space-y-6">
+                    <div class="flex items-center justify-between">
+                        <h3 class="text-lg font-bold text-purple-400 flex items-center gap-2">
+                            <i data-lucide="briefcase" class="w-5 h-5"></i> Agent 专项配置 (Agent Overrides)
+                        </h3>
+                        <div class="text-[10px] bg-purple-500/10 text-purple-400 px-2 py-1 rounded-md border border-purple-500/20">PRIORITY TIER 1</div>
+                    </div>
+
+                    <div id="agent-config-grid" class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        <!-- Agent config cards dynamically generated -->
+                    </div>
+                </div>
+
+                <div class="flex justify-end gap-4 pt-4">
+                    <button onclick="resetConfigForm()" class="px-8 py-3 rounded-2xl border border-slate-700 text-slate-400 hover:bg-slate-800 transition-all font-semibold">重置修改</button>
+                    <button onclick="saveLLMConfig()" class="bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-3 px-12 rounded-2xl transition-all shadow-lg shadow-cyan-600/30 flex items-center gap-2">
+                        <i data-lucide="check-circle" class="w-5 h-5"></i> 应用配置并同步
+                    </button>
+                </div>
+            </div>
         </div>
+
+    </div>
     </div>
 
 
     <script>
+        // Global state for multi-novel isolation
+        let currentOutlineId = localStorage.getItem('pga_current_outline_id') || 'default';
+
+        // Initialize project selector
+        async function refreshProjects() {
+            try {
+                const res = await fetch('/api/outlines/list');
+                const projects = await res.json();
+                const selector = document.getElementById('project-selector');
+                if (!selector) return;
+
+                // Clear and rebuild
+                selector.innerHTML = '';
+                projects.forEach(p => {
+                    const opt = document.createElement('option');
+                    opt.value = p.outline_id;
+                    opt.textContent = p.title;
+                    // Store summary for display
+                    opt.setAttribute('data-summary', p.summary || '');
+                    if (p.outline_id === currentOutlineId) {
+                        opt.selected = true;
+                        updateProjectDisplay(p.title, p.summary);
+                    }
+                    selector.appendChild(opt);
+                });
+                
+                // If current selected is NOT in the list, fallback to first or default
+                if (!projects.find(p => p.outline_id === currentOutlineId)) {
+                   if (projects.length > 0) {
+                       currentOutlineId = projects[0].outline_id;
+                       localStorage.setItem('pga_current_outline_id', currentOutlineId);
+                       selector.value = currentOutlineId;
+                   }
+                }
+            } catch (err) {
+                console.error("Failed to fetch projects:", err);
+            }
+        }
+
+        function changeProject(id) {
+            currentOutlineId = id;
+            localStorage.setItem('pga_current_outline_id', id);
+            // Reload core data for the new project
+            fetchHealth();
+            fetchLoreTree();
+            fetchArchives();
+            if (typeof fetchProseChapters === 'function') fetchProseChapters();
+            
+            showToast(`已切换至项目: ${id}`, 'info');
+        }
+
+        // Intercept all fetch requests to inject outline_id if needed
+        // (Alternative: manually add to payloads, which is safer given existing code)
         // Tab Management
         // --- Tab Management ---
         function switchTab(tabId) {
@@ -664,6 +834,7 @@
             if (tabId === 'entity-drafts') fetchDrafts();
             if (tabId === 'archive') fetchLoreTree();
             if (tabId === 'system') fetchHealth();
+            if (tabId === 'config') fetchLLMConfig();
         }
 
         const detailView = document.getElementById('detail-view');
@@ -678,11 +849,11 @@
         // --- Tree Management ---
         async function fetchLoreTree() {
             try {
-                const res = await fetch('/api/lore/tree');
+                const res = await fetch(`/api/lore/tree?outline_id=${currentOutlineId}`);
                 loreTree = await res.json();
                 
                 // Concurrent fetch for full list (sync count)
-                const loreRes = await fetch('/api/lore');
+                const loreRes = await fetch(`/api/lore?outline_id=${currentOutlineId}`);
                 allLoreData = await loreRes.json();
                 countDocs.innerText = allLoreData.length;
                 
@@ -893,6 +1064,7 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
+                        outline_id: currentOutlineId,
                         id: item.id,
                         type: item.type,
                         name: item.name || '',
@@ -937,7 +1109,7 @@
             btn.disabled = true;
 
             try {
-                const res = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+                const res = await fetch(`/api/search?q=${encodeURIComponent(query)}&outline_id=${currentOutlineId}`);
                 const data = await res.json();
                 
                 welcomeView.classList.add('hidden');
@@ -1198,7 +1370,12 @@
                 const res = await fetch('/api/agent/query', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ query, thread_id: current_thread_id, agent_type: currentAgentType })
+                    body: JSON.stringify({ 
+                        query, 
+                        outline_id: currentOutlineId,
+                        thread_id: current_thread_id, 
+                        agent_type: currentAgentType 
+                    })
                 });
 
                 if (!res.ok) throw new Error(await res.text());
@@ -1554,7 +1731,7 @@
         // Entity Drafts Logic
         async function fetchDrafts() {
             try {
-                const res = await fetch('/api/entity-drafts');
+                const res = await fetch(`/api/entity-drafts?outline_id=${currentOutlineId}`);
                 const drafts = await res.json();
                 renderDrafts(drafts);
                 updateDraftBadge(drafts.length);
@@ -1594,7 +1771,11 @@
                 const processRes = await fetch('/api/import/process', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ filename: uploadData.filename, strategy: strategy })
+                    body: JSON.stringify({ 
+                        filename: uploadData.filename, 
+                        strategy: strategy,
+                        outline_id: currentOutlineId 
+                    })
                 });
                 const processData = await processRes.json();
                 if (!processRes.ok) throw new Error(processData.error || '解析失败');
@@ -1682,7 +1863,10 @@
                 const res = await fetch('/api/import/confirm', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ entities: confirmedEntities })
+                    body: JSON.stringify({ 
+                        entities: confirmedEntities,
+                        outline_id: currentOutlineId
+                    })
                 });
                 const data = await res.json();
                 
@@ -1798,7 +1982,10 @@
                 const res = await fetch('/api/entity-drafts/batch-approve', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ names })
+                    body: JSON.stringify({ 
+                        names,
+                        outline_id: currentOutlineId
+                    })
                 });
                 const data = await res.json();
                 alert(`批量处理完成：成功 ${data.success}，失败 ${data.failed}`);
@@ -1817,7 +2004,10 @@
                 const res = await fetch('/api/entity-drafts/batch-reject', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ names })
+                    body: JSON.stringify({ 
+                        names,
+                        outline_id: currentOutlineId
+                    })
                 });
                 const data = await res.json();
                 alert(`批量处理完成：成功 ${data.success}，失败 ${data.failed}`);
@@ -1865,7 +2055,11 @@
                 const response = await fetch('/api/entity-drafts/refine', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, feedback })
+                    body: JSON.stringify({ 
+                        name, 
+                        feedback,
+                        outline_id: currentOutlineId
+                    })
                 });
 
                 const reader = response.body.getReader();
@@ -1908,7 +2102,10 @@
                 const res = await fetch('/api/entity-drafts/approve', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name: name })
+                    body: JSON.stringify({ 
+                        name: name,
+                        outline_id: currentOutlineId
+                    })
                 });
                 const data = await res.json();
                 if (!res.ok) {
@@ -1930,7 +2127,10 @@
                 const res = await fetch('/api/entity-drafts/reject', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name: name })
+                    body: JSON.stringify({ 
+                        name: name,
+                        outline_id: currentOutlineId
+                    })
                 });
                 const data = await res.json();
                 if (!res.ok) throw new Error(data.error || "HTTP " + res.status);
@@ -2232,7 +2432,7 @@
             loading.classList.remove('hidden');
             
             try {
-                const response = await fetch('/api/lore/mindmap');
+                const response = await fetch(`/api/lore/mindmap?outline_id=${currentOutlineId}`);
                 if (!response.ok) throw new Error("Failed to fetch mindmap data");
                 const markdown = await response.text();
                 
@@ -2305,7 +2505,7 @@
             
             try {
                 // Ensure ID is passed correctly
-                const res = await fetch(`/api/lore/entity-graph/${id}`);
+                const res = await fetch(`/api/lore/entity-graph/${id}?outline_id=${currentOutlineId}`);
                 const data = await res.json();
                 loading.classList.add('hidden');
                 
@@ -2428,6 +2628,9 @@
         async function initDashboard() {
             console.log("[DASHBOARD] Starting initialization...");
             try {
+                // 0. Fetch Project List
+                await refreshProjects();
+
                 // 1. Initial Icon Render
                 if (window.lucide) {
                     lucide.createIcons();
@@ -2435,6 +2638,9 @@
 
                 // 2. Fetch Literature Archive (Tree mode)
                 await fetchLoreTree();
+                
+                // Extra: Trigger first tab pre-fetch
+                if (typeof fetchHealth === 'function') fetchHealth();
 
                 // 3. Pre-fetch Templates
                 await fetchTemplates();
@@ -2463,8 +2669,280 @@
         // Start everything
         initDashboard();
 
+        // --- LLM Configuration Management ---
+        let originalConfig = null;
+        async function fetchLLMConfig() {
+            try {
+                const res = await fetch('/api/config');
+                const config = await res.json();
+                originalConfig = JSON.parse(JSON.stringify(config)); // deep copy
+                
+                // Global
+                const providerSelect = document.getElementById('config-global-provider');
+                if (providerSelect) providerSelect.value = config.LLM_PROVIDER || 'openai';
+                
+                const modelInput = document.getElementById('config-global-model');
+                if (modelInput) modelInput.value = config.LLM_MODEL || '';
+                
+                // Agents
+                renderAgentConfigGrid(config.AGENT_MODELS || {});
+
+                // Also fetch usage
+                fetchUsageStats();
+            } catch (err) {
+                console.error("Fetch config failed:", err);
+            }
+        }
+
+        async function fetchUsageStats() {
+            try {
+                const res = await fetch('/api/config/usage');
+                const usage = await res.json();
+                renderUsageTable(usage);
+            } catch (err) {
+                console.error("Fetch usage failed:", err);
+            }
+        }
+
+        function renderUsageTable(usage) {
+            const tbody = document.getElementById('usage-table-body');
+            if (!tbody) return;
+            tbody.innerHTML = '';
+            
+            const agentMap = {
+                'worldview': '世界观 Agent',
+                'outline': '大纲 Agent',
+                'writing': '创作 Agent',
+                'import': '导入 Agent',
+                'router': '路由 Agent',
+                'unknown': '未知/通用'
+            };
+
+            const sortedAgents = Object.keys(usage).sort((a, b) => usage[b].total_tokens - usage[a].total_tokens);
+
+            if (sortedAgents.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" class="px-6 py-8 text-center text-slate-500 italic">暂无使用数据</td></tr>';
+                return;
+            }
+
+            sortedAgents.forEach(agentId => {
+                const data = usage[agentId];
+                const row = document.createElement('tr');
+                row.className = "hover:bg-white/5 transition-colors";
+                row.innerHTML = `
+                    <td class="px-6 py-4 font-medium text-slate-200">${agentMap[agentId] || agentId}</td>
+                    <td class="px-6 py-4">${data.calls}</td>
+                    <td class="px-6 py-4 font-mono text-xs">${data.input_tokens.toLocaleString()}</td>
+                    <td class="px-6 py-4 font-mono text-xs">${data.output_tokens.toLocaleString()}</td>
+                    <td class="px-6 py-4 font-bold text-cyan-400 font-mono text-xs">${data.total_tokens.toLocaleString()}</td>
+                    <td class="px-6 py-4 text-right text-[10px] text-slate-500">${data.last_active || '-'}</td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+
+        function renderAgentConfigGrid(agentModels) {
+            const grid = document.getElementById('agent-config-grid');
+            if (!grid) return;
+            grid.innerHTML = '';
+            
+            const agents = [
+                { id: 'worldview', name: '世界观 Agent', icon: 'globe', color: 'cyan' },
+                { id: 'outline', name: '大纲 Agent', icon: 'layout', color: 'blue' },
+                { id: 'writing', name: '创作 Agent', icon: 'pen-tool', color: 'indigo' },
+                { id: 'import', name: '导入 Agent', icon: 'file-text', color: 'purple' },
+                { id: 'router', name: '路由 Agent', icon: 'split', color: 'slate' }
+            ];
+            
+            agents.forEach(agent => {
+                const config = agentModels[agent.id] || { provider: '', model: '' };
+                const card = document.createElement('div');
+                card.className = "glass p-6 rounded-3xl border border-slate-800 space-y-4 hover:border-white/10 transition-all";
+                card.innerHTML = `
+                    <div class="flex items-center gap-3">
+                        <div class="p-2 rounded-lg bg-${agent.color}-500/20 text-${agent.color}-400">
+                            <i data-lucide="${agent.icon}" class="w-4 h-4"></i>
+                        </div>
+                        <h4 class="font-bold text-slate-200">${agent.name}</h4>
+                    </div>
+                    <div class="space-y-3">
+                        <div class="space-y-1">
+                            <label class="text-[10px] text-slate-500 uppercase">Provider (可选)</label>
+                            <select data-agent="${agent.id}" data-type="provider" class="agent-config-input w-full bg-black/40 border border-slate-700/50 rounded-xl px-3 py-2 text-xs focus:border-${agent.color}-500 focus:outline-none transition-all">
+                                <option value="">使用全局默认</option>
+                                <option value="openai" ${config.provider === 'openai' ? 'selected' : ''}>OpenAI</option>
+                                <option value="deepseek" ${config.provider === 'deepseek' ? 'selected' : ''}>DeepSeek Official</option>
+                                <option value="siliconflow" ${config.provider === 'siliconflow' ? 'selected' : ''}>SiliconFlow</option>
+                                <option value="anthropic" ${config.provider === 'anthropic' ? 'selected' : ''}>Anthropic</option>
+                                <option value="google" ${config.provider === 'google' ? 'selected' : ''}>Google Gemini</option>
+                            </select>
+                        </div>
+                        <div class="space-y-1">
+                            <label class="text-[10px] text-slate-500 uppercase">Model Name (可选)</label>
+                            <input type="text" data-agent="${agent.id}" data-type="model" value="${config.model || ''}" placeholder="使用全局模型"
+                                class="agent-config-input w-full bg-black/40 border border-slate-700/50 rounded-xl px-3 py-2 text-xs focus:border-${agent.color}-500 focus:outline-none transition-all">
+                        </div>
+                    </div>
+                `;
+                grid.appendChild(card);
+            });
+            if (window.lucide) lucide.createIcons();
+        }
+
+        function resetConfigForm() {
+            if (originalConfig) {
+                document.getElementById('config-global-provider').value = originalConfig.LLM_PROVIDER || 'openai';
+                document.getElementById('config-global-model').value = originalConfig.LLM_MODEL || '';
+                renderAgentConfigGrid(originalConfig.AGENT_MODELS || {});
+                if (typeof showFloatingStatus === 'function') showFloatingStatus("已重置为上次保存的状态", "info");
+            }
+        }
+
+        async function saveLLMConfig() {
+            const config = {
+                LLM_PROVIDER: document.getElementById('config-global-provider').value,
+                LLM_MODEL: document.getElementById('config-global-model').value,
+                AGENT_MODELS: {}
+            };
+            
+            document.querySelectorAll('.agent-config-input').forEach(input => {
+                const agentId = input.dataset.agent;
+                const type = input.dataset.type;
+                if (!config.AGENT_MODELS[agentId]) config.AGENT_MODELS[agentId] = {};
+                config.AGENT_MODELS[agentId][type] = input.value;
+            });
+
+            // Cleanup empty agent configs
+            for (const agentId in config.AGENT_MODELS) {
+                if (!config.AGENT_MODELS[agentId].provider && !config.AGENT_MODELS[agentId].model) {
+                    delete config.AGENT_MODELS[agentId];
+                }
+            }
+
+            try {
+                if (typeof showFloatingStatus === 'function') showFloatingStatus("正在同步配置中心...", "info");
+                const res = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+                const result = await res.json();
+                if (result.status === 'success') {
+                    if (typeof showFloatingStatus === 'function') showFloatingStatus("LLM 配置已成功同步", "success");
+                    originalConfig = JSON.parse(JSON.stringify(config));
+                } else {
+                    throw new Error(result.message);
+                }
+            } catch (err) {
+                if (typeof showFloatingStatus === 'function') showFloatingStatus("保存失败: " + err.message, "error");
+            }
+        }
 
     </script>
 
+    <!-- Create Project Modal -->
+    <div id="create-project-modal" class="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4 transition-all duration-300 opacity-0">
+        <div class="bg-slate-900 border border-slate-700 w-full max-w-md rounded-3xl shadow-2xl overflow-hidden">
+            <div class="px-8 py-6 border-b border-slate-800 flex justify-between items-center bg-gradient-to-r from-slate-900 to-slate-800">
+                <div>
+                    <h3 class="text-xl font-bold text-white">初始化新小说项目</h3>
+                    <p class="text-[10px] text-slate-500 uppercase tracking-widest mt-1">Novel Project Initialization</p>
+                </div>
+                <button onclick="closeCreateProjectModal()" class="text-slate-400 hover:text-white transition-all">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <div class="p-8 space-y-6">
+                <div class="space-y-2">
+                    <label class="text-xs text-slate-400 font-medium ml-1">小说名称 (Novel Name)</label>
+                    <input id="new-project-name" type="text" placeholder="例如: 星际协议：深空遗迹" class="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500 transition-all">
+                </div>
+                <div class="space-y-2">
+                    <label class="text-xs text-slate-400 font-medium ml-1">小说简介 (Novel Summary/Description)</label>
+                    <textarea id="new-project-summary" rows="4" placeholder="描述这本小说的核心设定、时代背景、核心矛盾..." class="w-full bg-slate-950 border border-slate-800 rounded-2xl px-4 py-3 text-sm text-white focus:outline-none focus:border-cyan-500 transition-all resize-none"></textarea>
+                </div>
+                <button onclick="submitCreateProject()" id="btn-submit-project" class="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-bold py-3.5 rounded-2xl shadow-lg shadow-cyan-600/20 transition-all flex items-center justify-center gap-2">
+                    <i data-lucide="rocket" class="w-4 h-4"></i>
+                    立即创建项目
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        function openCreateProjectModal() {
+            const modal = document.getElementById('create-project-modal');
+            modal.classList.remove('hidden');
+            setTimeout(() => modal.classList.add('opacity-100'), 10);
+            if (window.lucide) lucide.createIcons();
+        }
+
+        function closeCreateProjectModal() {
+            const modal = document.getElementById('create-project-modal');
+            modal.classList.remove('opacity-100');
+            setTimeout(() => modal.classList.add('hidden'), 300);
+        }
+
+        async function submitCreateProject() {
+            const name = document.getElementById('new-project-name').value.trim();
+            const summary = document.getElementById('new-project-summary').value.trim();
+            const btn = document.getElementById('btn-submit-project');
+            
+            if (!name) {
+                showToast("请输入小说名称", "warning");
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<i data-lucide="loader" class="w-4 h-4 animate-spin"></i> 正在初始化...';
+            if (window.lucide) lucide.createIcons();
+
+            try {
+                const res = await fetch('/api/outlines/create', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name, summary })
+                });
+                
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || '创建失败');
+                
+                showToast(`项目《${name}》创建成功！`, 'success');
+                closeCreateProjectModal();
+                
+                // Clear inputs
+                document.getElementById('new-project-name').value = '';
+                document.getElementById('new-project-summary').value = '';
+                
+                // Refresh list and switch to the new project
+                currentOutlineId = data.outline_id;
+                await refreshProjects();
+                changeProject(data.outline_id);
+                
+            } catch (err) {
+                showToast(err.message, 'error');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i data-lucide="rocket" class="w-4 h-4"></i> 立即创建项目';
+                if (window.lucide) lucide.createIcons();
+            }
+        }
+
+        function updateProjectDisplay(title, summary) {
+            // Updated Agent UI display logic
+            const banner = document.getElementById('active-project-banner');
+            if (banner) {
+                banner.innerHTML = `
+                    <div class="flex flex-col gap-1">
+                        <div class="flex items-center gap-2">
+                            <span class="text-cyan-400 font-bold text-sm tracking-tight">${title}</span>
+                            <span class="text-[10px] text-slate-500 uppercase px-1 border border-slate-700 rounded transition-all">ACTIVATE PROJ</span>
+                        </div>
+                        <p class="text-[11px] text-slate-400 leading-relaxed line-clamp-2 max-w-2xl italic">${summary || '暂无简介'}</p>
+                    </div>
+                `;
+            }
+        }
+    </script>
 </body>
 </html>

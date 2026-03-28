@@ -12,37 +12,6 @@ from ui.layout import page_layout
 FLASK_API = 'http://localhost:5005'
 
 
-def _save_draft_direct(doc_id, new_name, new_content):
-    """Directly update a draft entry in entity_drafts_db.json."""
-    draft_name = str(doc_id).replace('draft_', '', 1)
-    if not os.path.exists(get_db_path("entity_drafts_db.json")):
-        raise FileNotFoundError('entity_drafts_db.json not found')
-
-    all_drafts = []
-    found = False
-    with open(get_db_path("entity_drafts_db.json"), 'r', encoding='utf-8') as f:
-        for line in f:
-            if not line.strip():
-                continue
-            entry = json.loads(line)
-            if entry.get('name') == draft_name and not found:
-                # Update matching draft
-                # Strip the [DRAFT] prefix if present in the new name
-                clean_name = new_name.replace('[DRAFT] ', '')
-                entry['name'] = clean_name
-                entry['description'] = new_content
-                entry['proposal'] = new_content
-                found = True
-            all_drafts.append(entry)
-
-    if not found:
-        raise ValueError(f'Draft "{draft_name}" not found')
-
-    with open(get_db_path("entity_drafts_db.json"), 'w', encoding='utf-8') as f:
-        for d in all_drafts:
-            f.write(json.dumps(d, ensure_ascii=False) + '\n')
-
-
 def build_tree_data(docs):
     """从扁平的文档数据构建分层树结构。"""
     tree_data = {"id": "root", "label": "全部知识条目", "children": [], "icon": "folder"}
@@ -81,23 +50,54 @@ def build_tree_data(docs):
     return [tree_data]
 
 
+async def _fetch_lore(worldview_id=None):
+    async with httpx.AsyncClient() as client:
+        params = {}
+        if worldview_id:
+            params['worldview_id'] = worldview_id
+        res = await client.get(f'{FLASK_API}/api/lore/list', params=params, timeout=10)
+        return res.json() if res.status_code == 200 else []
+
+async def _get_worldviews():
+    async with httpx.AsyncClient() as client:
+        res = await client.get(f'{FLASK_API}/api/worldviews/list', timeout=10)
+        return res.json() if res.status_code == 200 else []
+
 def _find_doc_by_id(docs, doc_id):
     for d in docs:
-        if d.get('id') == doc_id:
+        if str(d.get('id')) == str(doc_id):
             return d
     return None
 
 
 @ui.page('/lore')
-def lore_db_page():
+async def lore_db_page():
     # 状态
-    all_docs = get_all_lore_items()
+    worldviews = await _get_worldviews()
+    wv_options = {wv['worldview_id']: wv['name'] for wv in worldviews}
+    default_wv = next(iter(wv_options)) if wv_options else 'default_wv'
+    
+    current_wv = default_wv
+    all_docs = await _fetch_lore(current_wv)
     tree_format = build_tree_data(all_docs)
-    state = {'selected_doc': None}
+    state = {'selected_doc': None, 'all_docs': all_docs, 'current_wv': current_wv}
+
+    async def update_wv(new_wv):
+        state['current_wv'] = new_wv
+        state['all_docs'] = await _fetch_lore(new_wv)
+        tree.nodes = build_tree_data(state['all_docs'])
+        detail_container.refresh(None)
 
     with page_layout():
-        ui.label('世界观知识库浏览器').classes('text-2xl font-bold text-white mb-2')
-        ui.label('浏览、编辑或删除设定库中的条目。').classes('text-slate-400 text-sm mb-6')
+        with ui.row().classes('w-full items-center justify-between mb-4'):
+            with ui.column():
+                ui.label('世界观知识库浏览器').classes('text-2xl font-bold text-white')
+                ui.label('浏览、编辑或删除设定库中的条目。').classes('text-slate-400 text-sm')
+            
+            with ui.row().classes('items-center gap-4 bg-slate-800/60 p-2 rounded-lg border border-slate-700'):
+                ui.label('当前世界观:').classes('text-slate-400 text-xs font-bold')
+                wv_select = ui.select(wv_options, value=current_wv, on_change=lambda e: update_wv(e.value)).props('dark dense borderless').classes('min-w-[150px] text-cyan-400')
+                ui.button(icon='download', on_click=lambda: ui.download(f'{FLASK_API}/api/lore/export/opml?worldview_id={state["current_wv"]}')).props('flat color="slate-400" size="sm"').tooltip('导出备份 (OPML)')
 
         with ui.tabs().classes('w-full') as tabs:
             tab_tree = ui.tab('分类浏览', icon='account_tree')
@@ -108,7 +108,6 @@ def lore_db_page():
             # --- Tab 1: Tree View with Search ---
             with ui.tab_panel(tab_tree).classes('p-0'):
                 with ui.row().classes('w-full items-center gap-4 mb-4 bg-slate-800/40 p-3 rounded-lg border border-slate-700'):
-                    ui.icon('search', size='sm').classes('text-slate-500')
                     ui.icon('search', size='sm').classes('text-slate-500')
                     search_input = ui.input(placeholder='搜索实体名称、内容或标签...', on_change=lambda e: filter_tree(e.value)).props('borderless clearable').classes('flex-grow text-white pb-0')
                     semantic_toggle = ui.switch('语义搜索').props('color="cyan" size="sm"').classes('text-[10px] text-slate-400')
@@ -125,7 +124,7 @@ def lore_db_page():
                                     detail_container.refresh(None)
                                     return
                                 real_id = str(node_id).replace('leaf::', '')
-                                doc = _find_doc_by_id(all_docs, real_id)
+                                doc = _find_doc_by_id(state['all_docs'], real_id)
                                 state['selected_doc'] = doc
                                 detail_container.refresh(doc)
 
@@ -137,15 +136,14 @@ def lore_db_page():
 
                             async def filter_tree(query):
                                 if not query:
-                                    tree.nodes = tree_format
+                                    tree.nodes = build_tree_data(state['all_docs'])
                                     return
                                 query = query.lower()
                                 
                                 if semantic_toggle.value:
-                                    # Use Backend Semantic Search
                                     try:
                                         async with httpx.AsyncClient() as client:
-                                            res = await client.post(f'{FLASK_API}/api/search', json={'query': query}, timeout=10)
+                                            res = await client.post(f'{FLASK_API}/api/search', json={'query': query, 'worldview_id': state['current_wv']}, timeout=10)
                                             if res.status_code == 200:
                                                 filtered = res.json()
                                             else:
@@ -155,8 +153,7 @@ def lore_db_page():
                                         ui.notify(f"搜索请求出错: {ex}", type='negative')
                                         return
                                 else:
-                                    # Use Client-side Keyword Filter
-                                    filtered = [d for d in all_docs if 
+                                    filtered = [d for d in state['all_docs'] if 
                                                 query in (d.get('name') or '').lower() or 
                                                 query in (d.get('content') or '').lower() or
                                                 query in (d.get('category') or '').lower()]
@@ -168,7 +165,7 @@ def lore_db_page():
                         @ui.refreshable
                         def detail_container(doc=None):
                             if doc is None:
-                                with ui.column().classes('w-full h-full items-center justify-center'):
+                                with ui.column().classes('w-full h-[600px] items-center justify-center'):
                                     ui.icon('arrow_back', size='3rem').classes('text-slate-600 mb-2')
                                     ui.label('从树中选择一个条目以查看详细信息。').classes('text-slate-500 text-sm')
                                 return
@@ -176,14 +173,14 @@ def lore_db_page():
                             name = doc.get('name') or doc.get('query') or '未命名'
                             content = doc.get('content') or '(无内容)'
                             doc_type = doc.get('type', 'unknown').upper()
-                            type_map = {'WORLDVIEW': '世界观', 'OUTLINE': '大纲', 'PROSE': '正文', 'DRAFT': '草案'}
-                            display_type = type_map.get(doc_type, doc_type)
+                            
+                            type_map_zh = {'WORLDVIEW': '世界观', 'OUTLINE': '大纲', 'PROSE': '正文', 'DRAFT': '草案'}
+                            display_type = type_map_zh.get(doc_type, doc_type)
                             
                             doc_id = doc.get('id', '')
                             timestamp = doc.get('timestamp', '无')
 
                             with ui.column().classes('w-full gap-4 p-2'):
-                                # 头部
                                 with ui.row().classes('w-full items-center justify-between'):
                                     with ui.column().classes('gap-0'):
                                         ui.label(name).classes('text-xl font-bold text-white')
@@ -197,141 +194,132 @@ def lore_db_page():
                                         ui.button(icon='delete', on_click=lambda: confirm_delete(doc)).props('flat color="negative" size="sm"').tooltip('删除')
 
                                 ui.separator()
-
-                                # 内容展示
                                 ui.label('详细内容').classes('text-xs font-bold text-slate-400 uppercase')
                                 with ui.scroll_area().classes('w-full h-[400px] bg-black/30 rounded-lg border border-slate-800 p-4'):
                                     ui.markdown(content).classes('text-slate-300 text-sm')
 
                         detail_container()
 
-        # ---- 编辑对话框 ----
-        def open_edit_dialog(doc):
-            name = doc.get('name') or doc.get('query') or '未命名'
-            content = doc.get('content') or ''
-            doc_id = doc.get('id', '')
-            doc_type = doc.get('type', '')
+            # --- Tab 2: Entity Graph ---
+            with ui.tab_panel(tab_graph).classes('p-0'):
+                with ui.column().classes('w-full h-[650px] bg-black/40 rounded-lg border border-slate-800 relative'):
+                    graph_html = ui.html('').classes('w-full h-full')
+                    
+                    def refresh_graph():
+                        wv_id = state['current_wv']
+                        graph_html.content = f"""
+                        <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:#64748b;">
+                            <i class="material-icons" style="font-size:48px; margin-bottom:16px;">hub</i>
+                            <p>正在生成世界观「{wv_id}」的关联图谱...</p>
+                            <small style="margin-top:8px;">(预览模式 - 动态图谱加载中)</small>
+                        </div>
+                        """
+                    wv_select.on_value_change(refresh_graph)
+                    refresh_graph()
 
-            with ui.dialog() as dialog, ui.card().classes('w-[700px] bg-slate-900 border border-slate-700'):
-                ui.label(f'编辑: {name}').classes('text-lg font-bold text-white mb-2')
-                name_input = ui.input('条目名称', value=name).classes('w-full')
-                content_input = ui.textarea('条目内容', value=content).classes('w-full h-64')
+            # --- Tab 3: Mindmap ---
+            with ui.tab_panel(tab_mindmap).classes('p-0'):
+                with ui.column().classes('w-full h-[650px] bg-black/40 rounded-lg border border-slate-800'):
+                    mm_html = ui.html('').classes('w-full h-full overflow-auto')
+                    
+                    async def refresh_mindmap():
+                        wv_id = state['current_wv']
+                        try:
+                            async with httpx.AsyncClient() as client:
+                                res = await client.get(f'{FLASK_API}/api/lore/mindmap?worldview_id={wv_id}', timeout=10)
+                                if res.status_code == 200:
+                                    safe_md = res.text.replace('`', '\\`').replace('$', '\\$')
+                                    mm_html.content = f"""
+                                    <div id="mindmap-container" style="width:100%; height:100%; background:#09090b;">
+                                        <script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+                                        <script src="https://cdn.jsdelivr.net/npm/markmap-view"></script>
+                                        <script src="https://cdn.jsdelivr.net/npm/markmap-lib"></script>
+                                        <svg id="markmap-svg" style="width:100%; height:100%;"></svg>
+                                        <script>
+                                            try {{
+                                                const {{ Markmap, loadCSS, loadJS }} = window.markmap;
+                                                const transformer = new markmap.Transformer();
+                                                const {{ root, features }} = transformer.transform(`{safe_md}`);
+                                                Markmap.create('#markmap-svg', null, root);
+                                            }} catch (e) {{
+                                                document.getElementById('mindmap-container').innerHTML = '<div style="color:red; p:20px;">Render Error: ' + e.message + '</div>';
+                                            }}
+                                        </script>
+                                    </div>
+                                    """
+                                else:
+                                    mm_html.content = "<div class='p-4 text-slate-500'>该世界观暂无知识条目。</div>"
+                        except Exception as ex:
+                            mm_html.content = f"<div class='p-4 text-red-500'>加载失败: {ex}</div>"
+                    
+                    wv_select.on_value_change(refresh_mindmap)
+                    ui.timer(0.1, refresh_mindmap, once=True)
 
-                with ui.row().classes('w-full justify-end gap-2 mt-4'):
-                    ui.button('取消', on_click=dialog.close).props('flat')
-                    ui.button('保存', on_click=lambda: save_edit(dialog, doc_id, doc_type, name_input.value, content_input.value)).props('color="positive"')
-            dialog.open()
+    # ---- 辅助函数 ----
+    def open_edit_dialog(doc):
+        name = doc.get('name') or doc.get('query') or '未命名'
+        content = doc.get('content') or ''
+        doc_id = doc.get('id', '')
+        doc_type = doc.get('type', '').lower()
+        if doc_type == 'draft': doc_type = 'entity-draft'
 
-        async def save_edit(dialog, doc_id, doc_type, new_name, new_content):
-            try:
-                if doc_type == 'draft':
-                    # 直接通过 entity_drafts_db.json 处理草案
-                    _save_draft_direct(doc_id, new_name, new_content)
+        with ui.dialog() as dialog, ui.card().classes('w-[700px] bg-slate-900 border border-slate-700'):
+            ui.label(f'编辑: {name}').classes('text-lg font-bold text-white mb-2')
+            name_input = ui.input('条目名称', value=name).classes('w-full')
+            content_input = ui.textarea('条目内容', value=content).classes('w-full h-64')
+
+            with ui.row().classes('w-full justify-end gap-2 mt-4'):
+                ui.button('取消', on_click=dialog.close).props('flat')
+                ui.button('保存', on_click=lambda: save_edit(dialog, doc_id, doc_type, name_input.value, content_input.value, doc.get('outline_id'))).props('color="positive"')
+        dialog.open()
+
+    async def save_edit(dialog, doc_id, doc_type, new_name, new_content, outline_id):
+        try:
+            async with httpx.AsyncClient() as client:
+                res = await client.post(f'{FLASK_API}/api/archive/update', json={
+                    'id': doc_id, 'type': doc_type, 'content': new_content, 'name': new_name,
+                    'worldview_id': state['current_wv'], 'outline_id': outline_id
+                }, timeout=10)
+                if res.status_code == 200:
                     ui.notify(f'"{new_name}" 保存成功！', type='positive')
                     dialog.close()
-                    nonlocal all_docs
-                    all_docs = get_all_lore_items()
-                    doc = _find_doc_by_id(all_docs, doc_id)
-                    if doc:
-                        detail_container.refresh(doc)
-                    return
-
-                async with httpx.AsyncClient() as client:
-                    res = await client.post(f'{FLASK_API}/api/archive/update', json={
-                        'id': doc_id,
-                        'type': doc_type,
-                        'content': new_content,
-                        'name': new_name,
-                    }, timeout=10)
-                    data = res.json()
-                    if res.status_code == 200:
-                        ui.notify(f'"{new_name}" 保存成功！', type='positive')
-                        dialog.close()
-                        all_docs = get_all_lore_items()
-                        doc = _find_doc_by_id(all_docs, doc_id)
-                        if doc:
-                            detail_container.refresh(doc)
-                    else:
-                        ui.notify(f"保存失败: {data.get('error', '未知错误')}", type='negative')
-            except Exception as ex:
-                ui.notify(f'保存出错: {ex}', type='negative')
-
-        # ---- 删除确认 ----
-        def confirm_delete(doc):
-            name = doc.get('name') or '未命名'
-            doc_id = doc.get('id', '')
-            doc_type = doc.get('type', '')
-
-            with ui.dialog() as dialog, ui.card().classes('bg-slate-900 border border-red-800'):
-                ui.label(f'确认删除 "{name}"？').classes('text-lg font-bold text-red-400')
-                ui.label('此操作不可撤销。该条目将从数据库中永久移除。').classes('text-slate-400 text-sm my-4')
-                with ui.row().classes('w-full justify-end gap-2'):
-                    ui.button('取消', on_click=dialog.close).props('flat')
-                    ui.button('删除', on_click=lambda: do_delete(dialog, doc_id, doc_type, name)).props('color="negative"')
-            dialog.open()
-
-        async def do_delete(dialog, doc_id, doc_type, name):
-            """从对应的 JSONL / JSON 数据库文件中删除条目。"""
-            try:
-                filename = {
-                    'worldview': get_db_path("worldview_db.json"),
-                    'outline': get_db_path("outlines_db.json"),
-                    'prose': get_db_path("prose_db.json"),
-                    'draft': get_db_path("entity_drafts_db.json"),
-                }.get(doc_type)
-
-                if not filename or not os.path.exists(filename):
-                    ui.notify(f'无法删除：未知类型 "{doc_type}"', type='negative')
-                    dialog.close()
-                    return
-
-                if doc_type in ['outline', 'worldview', 'prose']:
-                    # JSONL — match by ID
-                    remaining = []
-                    with open(filename, 'r', encoding='utf-8') as f:
-                        for line in f:
-                            if not line.strip(): continue
-                            entry = json.loads(line)
-                            curr_id = entry.get('doc_id') or entry.get('id') or entry.get('outline_id') or entry.get('scene_id')
-                            if str(curr_id) != str(doc_id):
-                                remaining.append(line)
-                    with open(filename, 'w', encoding='utf-8') as f:
-                        f.writelines(remaining)
-                elif doc_type == 'draft':
-                    # 草案 JSONL — 通过从 draft_ID 中提取的名称进行匹配
-                    draft_name = str(doc_id).replace('draft_', '', 1)
-                    remaining = []
-                    with open(filename, 'r', encoding='utf-8') as f:
-                        for line in f:
-                            if not line.strip():
-                                continue
-                            entry = json.loads(line)
-                            if entry.get('name') != draft_name:
-                                remaining.append(entry)
-                    with open(filename, 'w', encoding='utf-8') as f:
-                        for entry in remaining:
-                            f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+                    state['all_docs'] = await _fetch_lore(state['current_wv'])
+                    doc = _find_doc_by_id(state['all_docs'], doc_id)
+                    if doc: detail_container.refresh(doc)
+                    tree.nodes = build_tree_data(state['all_docs'])
                 else:
-                    # JSONL (worldview, prose)
-                    remaining = []
-                    with open(filename, 'r', encoding='utf-8') as f:
-                        for line in f:
-                            if not line.strip():
-                                continue
-                            entry = json.loads(line)
-                            entry_id = entry.get('doc_id') or entry.get('id')
-                            if str(entry_id) != str(doc_id):
-                                remaining.append(entry)
-                    with open(filename, 'w', encoding='utf-8') as f:
-                        for entry in remaining:
-                            f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+                    ui.notify(f"保存失败: {res.json().get('error', '未知错误')}", type='negative')
+        except Exception as ex:
+            ui.notify(f'保存出错: {ex}', type='negative')
 
-                ui.notify(f'已删除 "{name}"', type='warning')
-                dialog.close()
-                # 刷新
-                nonlocal all_docs
-                all_docs = get_all_lore_items()
-                detail_container.refresh(None)
+    def confirm_delete(doc):
+        name = doc.get('name') or '未命名'
+        doc_id = doc.get('id', '')
+        doc_type = doc.get('type', '').lower()
+        if doc_type == 'draft': doc_type = 'entity-draft'
 
-            except Exception as ex:
-                ui.notify(f'删除失败: {ex}', type='negative')
+        with ui.dialog() as dialog, ui.card().classes('bg-slate-900 border border-red-800'):
+            ui.label(f'确认删除 "{name}"？').classes('text-lg font-bold text-red-400')
+            ui.label('此操作不可撤销。').classes('text-slate-400 text-sm my-2')
+            with ui.row().classes('w-full justify-end gap-2'):
+                ui.button('取消', on_click=dialog.close).props('flat')
+                ui.button('删除', on_click=lambda: do_delete(dialog, doc_id, doc_type, name, doc.get('outline_id'))).props('color="negative"')
+        dialog.open()
+
+    async def do_delete(dialog, doc_id, doc_type, name, outline_id):
+        try:
+            async with httpx.AsyncClient() as client:
+                res = await client.request('DELETE', f'{FLASK_API}/api/archive/delete', json={
+                    'id': doc_id, 'type': doc_type,
+                    'worldview_id': state['current_wv'], 'outline_id': outline_id
+                }, timeout=10)
+                if res.status_code == 200:
+                    ui.notify(f'已删除 "{name}"', type='warning')
+                    dialog.close()
+                    state['all_docs'] = await _fetch_lore(state['current_wv'])
+                    detail_container.refresh(None)
+                    tree.nodes = build_tree_data(state['all_docs'])
+                else:
+                    ui.notify(f"删除失败: {res.json().get('error', '未知错误')}", type='negative')
+        except Exception as ex:
+            ui.notify(f'删除错误: {ex}', type='negative')

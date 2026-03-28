@@ -17,24 +17,29 @@ from lore_utils import (
     get_llm, 
     extract_text_from_file, 
     sync_lore_to_db, 
-    get_langfuse_callback
+    get_langfuse_callback,
+    dispatch_log
 )
 
 # --- State Definition ---
 
 class ImportState(TypedDict):
     file_path: str
+    worldview_id: str
+    outline_id: Optional[str]
     raw_text: str
     strategy: str # 'llm', 'regex', 'fixed'
     entities: List[Dict[str, Any]]
     results: List[str]
     status: str
     status_message: str
+    llm_interactions: Dict[str, Any] # [诊断] 存储各节点的 LLM 入参与原始出参
 
 # --- Nodes ---
 
-def parse_file_node(state: ImportState):
+def parse_file_node(state: ImportState, config: dict):
     """提取文件内容"""
+    dispatch_log(config, f"正在从路径 {state['file_path']} 读取原始文本...")
     try:
         text = extract_text_from_file(state["file_path"])
         return {
@@ -48,8 +53,9 @@ def parse_file_node(state: ImportState):
             "status_message": f"❌ 文件解析失败: {str(e)}"
         }
 
-def segment_lore_node(state: ImportState):
+def segment_lore_node(state: ImportState, config: dict):
     """根据策略进行切片"""
+    dispatch_log(config, f"正在启动分割引擎，策略: {state.get('strategy', 'llm').upper()}...")
     if state["status"].startswith("error"): return state
     
     strategy = state.get("strategy", "llm").lower()
@@ -79,7 +85,7 @@ def segment_lore_node(state: ImportState):
         return {"entities": entities, "status": "segmented", "status_message": msg}
 
     else: # Default: llm
-        model = get_llm()
+        model = get_llm(agent_name="import")
         prompt = f"""
         你是一个专业的设定分析师。请将以下世界观原始文档切分为多个独立的“设定实体 (Lore Entities)”。
         切分准则：
@@ -93,16 +99,19 @@ def segment_lore_node(state: ImportState):
         response = model.invoke([HumanMessage(content=prompt)], config={"callbacks": [get_langfuse_callback()] if get_langfuse_callback() else []})
         try:
             from lore_utils import parse_json_safely
+            dispatch_log(config, "LLM 已返回分段建议，正在解析 JSON 结构...")
             entities = parse_json_safely(response.content)
+            dispatch_log(config, f"分段解析完成，获得 {len(entities)} 个设定实体。")
             return {"entities": entities, "status": "segmented", "status_message": msg}
         except Exception as e:
             return {"status": f"error_segment: {str(e)}", "status_message": "❌ LLM 切分解析异常"}
 
-def categorize_pga_node(state: ImportState):
+def categorize_pga_node(state: ImportState, config: dict):
     """分类到 PGA 0-4 架构"""
+    dispatch_log(config, "启动 0-4 协议映射分类器...")
     if state["status"].startswith("error") or not state.get("entities"): return state
     
-    model = get_llm()
+    model = get_llm(agent_name="import")
     entities = state["entities"]
     
     prompt = f"""
@@ -120,6 +129,7 @@ def categorize_pga_node(state: ImportState):
     
     response = model.invoke([HumanMessage(content=prompt)])
     from lore_utils import parse_json_safely
+    dispatch_log(config, "分类结果已由 LLM 产出，正在执行实体映射...")
     mapping = parse_json_safely(response.content)
     
     updated_entities = []
@@ -134,14 +144,18 @@ def categorize_pga_node(state: ImportState):
         "status_message": f"📊 已完成 {len(updated_entities)} 个实体的 0-4 协议分类。准备进入入库预览..."
     }
 
-def sync_library_node(state: ImportState):
+def sync_library_node(state: ImportState, config: dict):
     """同步到数据库"""
+    dispatch_log(config, "开始将分析后的实体同步至分布式数据库 (MongoDB & Chroma)...")
     if state["status"].startswith("error"): return state
     
     results = []
+    outline_id = state.get("outline_id")
+    worldview_id = state.get("worldview_id", "default_wv")
+    
     for entity in state["entities"]:
         try:
-            sync_lore_to_db(entity)
+            sync_lore_to_db(entity, outline_id=outline_id, worldview_id=worldview_id)
             results.append(f"Success: {entity['name']}")
         except Exception as e:
             results.append(f"Failed: {entity['name']} ({str(e)})")
@@ -149,7 +163,7 @@ def sync_library_node(state: ImportState):
     return {
         "results": results, 
         "status": "completed",
-        "status_message": "✨ 世界观导入任务已全部完成，相关实体已同步至分布式向量数据库与词条库。"
+        "status_message": f"✨ 世界观导入任务已完成，实体已同步至世界观 '{worldview_id}' 的分布式数据库。"
     }
 
 # --- Graph Construction ---

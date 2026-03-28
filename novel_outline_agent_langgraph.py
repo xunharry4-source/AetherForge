@@ -30,7 +30,9 @@ from lore_utils import (
     register_draft_entity,
     get_category_template,
     get_evolution_rules,
-    get_db_path
+    get_evolution_rules,
+    get_db_path,
+    dispatch_log
 )
 
 # ==========================================
@@ -49,6 +51,7 @@ class OutlineState(TypedDict):
         is_approved: 是否通过逻辑审核或人类确认。
         status_message: 进度描述。
     """
+    worldview_id: str      # 所属世界观 ID
     query: str             # 用户的小说想法/需求
     context: str           # 检索到的世界观背景
     proposal: str          # 当前生成的大纲草案
@@ -58,19 +61,25 @@ class OutlineState(TypedDict):
     audit_count: int       # 当前自审重试次数
     is_approved: bool      # 是否通过审核/用户批准
     status_message: str    # 执行进度描述
-    # ==========================================
-    # 1. Nodes
-    # ==========================================
+    mode: str             # 模式: 'book' 或 'chapter'
+    grounding_sources: List[dict] # 绑定的源素材索引
+    scratchpad: list[str]  # Autoresearch 草稿本
+    defense_log: str       # 结构化防御日志
+    llm_interactions: dict # [诊断] 存储各节点的 LLM 入参与原始出参
 
-def outline_retriever(state: OutlineState):
+def outline_retriever(state: OutlineState, config: dict):
     """
     检索辅助节点：专门负责 RAG 检索，将耗时操作独立出来以提供更好的进度反馈。
     """
+    dispatch_log(config, "启动大纲 RAG 检索...")
     query = state.get('query') or ""
     print(f"\n[AGENT] Entering Retriever for query: {query[:50]}...")
     
     # 执行耗时的 RAG 检索
-    sources = get_grounded_context(query)
+    worldview_id = state.get('worldview_id', 'default_wv')
+    dispatch_log(config, f"正在检索与需求 '{query[:20]}...' 相关的世界观锚点...")
+    sources = get_grounded_context(query, worldview_id=worldview_id)
+    dispatch_log(config, f"检索完成，锚定 {len(sources)} 条素材。")
     context_str = format_grounded_context_for_prompt(sources)
     
     return {
@@ -78,18 +87,13 @@ def outline_retriever(state: OutlineState):
         "status_message": "🔍 已从世界观知识库检索并锚定相关背景素材。"
     }
 
-    mode: str             # 模式: 'book' 或 'chapter'
-    grounding_sources: List[dict] # 绑定的源素材索引
-    scratchpad: list[str]  # Autoresearch 草稿本
-    defense_log: str       # 结构化防御日志
-    llm_interactions: dict # [诊断] 存储各节点的 LLM 入参与原始出参
-
 # ==========================================
 # Nodes Implementation
 # ==========================================
 
-def outline_planner(state: OutlineState):
+def outline_planner(state: OutlineState, config: dict):
     """大纲策划节点 (支持全局与分章细化)"""
+    dispatch_log(config, "正在初始化大纲创作引擎并对齐上下文...")
     print(f"\n[DEBUG] outline_planner entry. State keys: {list(state.keys())}")
     query = state.get('query') or ""
     
@@ -105,7 +109,7 @@ def outline_planner(state: OutlineState):
     target_chapter_info = ""
     if is_chapter_detail:
         from lore_utils import get_latest_book_outline
-        latest_book = get_latest_book_outline()
+        latest_book = get_latest_book_outline(worldview_id=state.get('worldview_id', 'default_wv'))
         if latest_book:
             outline = latest_book.get('outline', {})
             book_context = f"\n【全局大纲参考】\n{json.dumps(outline, ensure_ascii=False)}"
@@ -154,7 +158,8 @@ def outline_planner(state: OutlineState):
         mode_desc = "你正在进行【全局小说策划】。请构建完整的故事框架、人物志、核心冲突链路，并以此为基础生成一份详尽的【章节目录】，为后续的分章创作提供指引。"
 
     # A 层：注入已注册实体清单
-    entity_registry = get_entity_registry()
+    worldview_id = state.get('worldview_id', 'default_wv')
+    entity_registry = get_entity_registry(worldview_id=worldview_id)
     entity_constraint = format_entity_registry_for_prompt(entity_registry)
     
     prompt = f"""你是一个专精于 PGA 世界观的小说策划专家。
@@ -186,7 +191,7 @@ Schema: {schema}
 
 请输出符合 Schema 的 JSON。
 """
-    res = get_llm(json_mode=True).invoke(prompt)
+    res = get_llm(json_mode=True, agent_name="outline").invoke(prompt)
     curr_iterations = state.get('iterations', 0)
     
     # 记录推演轨迹到 scratchpad
@@ -232,8 +237,9 @@ class OutlineChapterDefenseSchema(pydantic.BaseModel):
     class Config:
         extra = 'allow'
 
-def outline_defense_node(state: OutlineState):
+def outline_defense_node(state: OutlineState, config: dict):
     """大纲防线节点 (Cookbook Structured Defense Validator)"""
+    dispatch_log(config, "执行大纲结构化防守检查...")
     print(f"\n[DEBUG] outline_defense_node entry. State keys: {list(state.keys())}")
     proposal = state.get('proposal', '')
     mode = state.get('mode', 'book')
@@ -270,8 +276,9 @@ def outline_defense_node(state: OutlineState):
         }
 
 
-def outline_critic(state: OutlineState):
+def outline_critic(state: OutlineState, config: dict):
     """大纲审计节点"""
+    dispatch_log(config, "启动逻辑审计引擎检查 0-4 协议合规性...")
     print(f"\n[DEBUG] outline_critic entry. State keys: {list(state.keys())}")
     query = state.get('query', '')
     proposal = state.get('proposal', '')
@@ -279,7 +286,7 @@ def outline_critic(state: OutlineState):
         print("[WARNING] proposal is missing at outline_critic!")
         
     prohibited_items = get_prohibited_rules()
-    worldview_rules = get_worldview_context_by_category(query)
+    worldview_rules = get_worldview_context_by_category(query, worldview_id=state.get('worldview_id', 'default_wv'))
     
     prompt = f"""你是一个 PGA 世界观与故事逻辑审核官。
 必须输出 JSON。
@@ -292,7 +299,7 @@ def outline_critic(state: OutlineState):
 
 请审核一致性、完整性与动机，输出 JSON: {{"status": "合理/不合理", "audit_log": "..."}}
 """
-    res = get_llm(json_mode=True).invoke(prompt)
+    res = get_llm(json_mode=True, agent_name="outline").invoke(prompt)
     try:
         audit_data = parse_json_safely(res.content)
         is_ok = audit_data.get("status") == "合理"
@@ -336,13 +343,17 @@ def outline_saver(state: OutlineState):
         return {"status_message": f"存档失败: 无法解析大纲提案 JSON: {str(e)}"}
 
     # 1. 存入 JSON 数据库
+    worldview_id = state.get('worldview_id', 'default_wv')
+    novel_id = f"novel_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}"
+    
     db_record = {
-        "id": f"outline_{datetime.datetime.now().strftime('%Y%m%d%H%M%S')}",
+        "outline_id": novel_id,
+        "worldview_id": worldview_id,
         "timestamp": datetime.datetime.now().isoformat(),
-        "query": state.get('query', ''), # Keep query in record
+        "query": state.get('query', ''),
         "mode": state.get('mode', 'book'),
         "outline": proposal_dict,
-        "iterations": state.get('iterations', 0) # Keep iterations in record
+        "iterations": state.get('iterations', 0)
     }
     
     with open(get_db_path("outlines_db.json"), 'a', encoding='utf-8') as f:
@@ -363,11 +374,12 @@ def outline_saver(state: OutlineState):
 # ==========================================
 # Grounding Audit (素材锚定审计)
 # ==========================================
-def grounding_audit_node(state: OutlineState):
+def grounding_audit_node(state: OutlineState, config: dict):
     """
     基于 NotebookLM 逻辑的素材锚定审计。
     核查提案中所有的 [SX] 引用是否真实、准确。
     """
+    dispatch_log(config, "正在核对 [SX] 素材锚定真实性...")
     print(f"\n[DEBUG] grounding_audit_node entry.")
     proposal = state.get('proposal', '')
     sources = state.get('grounding_sources', [])
@@ -398,7 +410,7 @@ def grounding_audit_node(state: OutlineState):
 }}
 """
     try:
-        res = get_llm(json_mode=True).invoke(prompt)
+        res = get_llm(json_mode=True, agent_name="outline").invoke(prompt)
         audit_res = parse_json_safely(res.content)
         
         is_grounded = audit_res.get("status") == "通过"
@@ -427,15 +439,17 @@ def grounding_audit_node(state: OutlineState):
 # ==========================================
 # B 层：实体哨兵审计节点
 # ==========================================
-def entity_sentinel_node(state: OutlineState):
+def entity_sentinel_node(state: OutlineState, config: dict):
     """实体哨兵节点 (B 层) - 从大纲提案中提取实体并与注册表比对"""
+    dispatch_log(config, "正在提取大纲提及实体并检索注册表...")
     print(f"\n[DEBUG] entity_sentinel_node entry. State keys: {list(state.keys())}")
     proposal = str(state.get('proposal') or '')
     if not proposal:
         return {"status_message": "实体哨兵：无提案可审计"}
     
     # 1. 获取当前已注册实体（扁平化为名称集合）
-    registry = get_entity_registry()
+    worldview_id = state.get('worldview_id', 'default_wv')
+    registry = get_entity_registry(worldview_id=worldview_id)
     known_names = set()
     for names_list in registry.values():
         known_names.update(names_list)
@@ -449,7 +463,7 @@ def entity_sentinel_node(state: OutlineState):
 {proposal[:3000]}
 """
     try:
-        res = get_llm(json_mode=True).invoke(extract_prompt)
+        res = get_llm(json_mode=True, agent_name="outline").invoke(extract_prompt)
         extracted = parse_json_safely(res.content)
         if not isinstance(extracted, list):
             extracted = []
@@ -501,7 +515,7 @@ def entity_sentinel_node(state: OutlineState):
 TASK: 请输出该实体的完整 JSON 设定，必须匹配模板字段。
 """
             try:
-                card_res = get_llm(json_mode=True).invoke(card_prompt)
+                card_res = get_llm(json_mode=True, agent_name="outline").invoke(card_prompt)
                 entity_card = parse_json_safely(card_res.content)
             except Exception:
                 entity_card = {"name": name, "description": "自动生成失败，仅保留名称"}
@@ -514,7 +528,8 @@ TASK: 请输出该实体的完整 JSON 设定，必须匹配模板字段。
                 entity_type=category,
                 source_context=f"大纲提案中首次出现",
                 source_agent="outline",
-                entity_card=entity_card
+                entity_card=entity_card,
+                worldview_id=worldview_id
             )
     
     # 4. 生成报告

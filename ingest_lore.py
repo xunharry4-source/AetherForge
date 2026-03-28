@@ -162,7 +162,8 @@ def ingest(opml_path):
                 try:
                     data = json.loads(line)
                     indexed_paths.add(data.get("path", "") + data.get("content", ""))
-                except:
+                except Exception as e:
+                    print(f"[WARN] Failed to parse line in worldview_db: {e}")
                     continue
     
     for chunk in chunks:

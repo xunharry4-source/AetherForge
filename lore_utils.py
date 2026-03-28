@@ -15,7 +15,7 @@ import pymongo
 import chromadb
 import json
 import re
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, cast
 import time
 from chromadb.config import Settings
 from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
@@ -32,6 +32,19 @@ except ImportError:
     HAS_LANGFUSE = False
     print("[WARN] langfuse-python not installed, LLM tracing disabled.")
 
+from langchain_core.callbacks import BaseCallbackHandler
+
+class AtomicLogHandler(BaseCallbackHandler):
+    """
+    Custom LangChain callback handler to capture 'atomic' logs from nodes.
+    """
+    def __init__(self, on_log_func):
+        self.on_log_func = on_log_func
+
+    def on_custom_event(self, name: str, data: Any, **kwargs: Any) -> Any:
+        if name == "atomic_log":
+            self.on_log_func(data)
+
 HAS_DOCX = False
 try:
     import docx
@@ -46,10 +59,33 @@ try:
 except ImportError:
     pass
     
-def get_db_path(filename: str) -> str:
-    """获取数据文件的绝对路径，统一存储在 data 子目录下。"""
+def get_db_path(filename: str, outline_id: Optional[str] = None, worldview_id: Optional[str] = None) -> str:
+    """
+    获取数据文件的路径。
+    层级结构:
+    - 全局注册表: data/filename
+    - 世界观层: data/worldviews/{worldview_id}/filename
+    - 小说/大纲层: data/worldviews/{worldview_id}/outlines/{outline_id}/filename
+    """
     base_dir = os.path.dirname(os.path.abspath(__file__))
-    data_dir = os.path.join(base_dir, "data")
+    
+    # 1. 全局注册表 (不依赖任何 ID)
+    global_registries = ["outlines_db.json", "worldviews_registry.json", "worldview_templates.json"]
+    if filename in global_registries:
+        data_dir = os.path.join(base_dir, "data")
+    
+    # 2. 层级化路径处理
+    else:
+        # 确定世界观 ID
+        wid = worldview_id if worldview_id else "default_wv"
+        
+        if outline_id:
+            # 大纲层 (属于某个世界观)
+            data_dir = os.path.join(base_dir, "data", "worldviews", wid, "outlines", outline_id)
+        else:
+            # 世界观层 (共享设定层)
+            data_dir = os.path.join(base_dir, "data", "worldviews", wid)
+            
     os.makedirs(data_dir, exist_ok=True)
     return os.path.join(data_dir, filename)
 
@@ -79,10 +115,34 @@ class APIKeyManager:
         print(f"[lore_utils] API Key Rotated to Index {self.index}")
         return True
 
+def dispatch_log(config: Dict[str, Any], message: str):
+    """
+    Utility to dispatch an atomic log event from within a LangGraph node.
+    Requires an AtomicLogHandler to be present in the config callbacks.
+    """
+    from langchain_core.callbacks.manager import CallbackManager
+    callbacks = config.get("callbacks")
+    if callbacks:
+        if isinstance(callbacks, list):
+            for cb in callbacks:
+                if hasattr(cb, "on_custom_event"):
+                    try:
+                        cb.on_custom_event("atomic_log", message)
+                    except Exception as e:
+                        logger.error(f"Error in on_custom_event: {e}")
+        elif hasattr(callbacks, "on_custom_event"):
+            try:
+                callbacks.on_custom_event("atomic_log", message)
+            except Exception as e:
+                logger.error(f"Error in on_custom_event fallback: {e}")
+    
+    # Fallback to standard logging
+    logger.info(f"[ATOMIC] {message}")
+
 _key_manager = APIKeyManager()
 
 # --- LangFuse Callback Helper ---
-def get_langfuse_callback():
+def get_langfuse_callback() -> Optional[CallbackHandler]:
     """Returns a LangFuse CallbackHandler if keys are configured."""
     config = load_config()
     pk = config.get("LANGFUSE_PUBLIC_KEY")
@@ -102,7 +162,7 @@ def get_langfuse_callback():
 _token_counter = None
 _request_counter = None
 
-def report_token_usage(model: str, prompt_tokens: int, completion_tokens: int, agent_name: str = "unknown"):
+def report_token_usage(model: str, prompt_tokens: int, completion_tokens: int, agent_name: str = "unknown") -> None:
     """Reports token usage to Prometheus."""
     global _token_counter
     if _token_counter is None:
@@ -187,15 +247,15 @@ def extract_text_from_file(file_path: str) -> str:
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
                 text = f.read()
-        except:
-            raise ValueError(f"Unsupported file format: {ext}")
+        except Exception as e:
+            raise ValueError(f"Unsupported file format or error reading {ext}: {e}")
             
     if not text:
         return ""
         
     return clean_text(text)
 
-def get_lore_by_doc_id(doc_id: str) -> Optional[Dict[str, Any]]:
+def get_lore_by_doc_id(doc_id: str, outline_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """通过 doc_id 快速获取完整实体"""
     # 优先尝试 MongoDB
     try:
@@ -204,7 +264,12 @@ def get_lore_by_doc_id(doc_id: str) -> Optional[Dict[str, Any]]:
         mongo_db = config.get("MONGO_DB_NAME", "pga_worldview")
         mongo_client = pymongo.MongoClient(mongo_uri, serverSelectionTimeoutMS=1000)
         coll = mongo_client[mongo_db]["lore"]
-        doc = coll.find_one({"doc_id": doc_id})
+        # If MongoDB is used, it should probably be namespaced too, but for now we filter by outline_id if present in doc
+        query = {"doc_id": doc_id}
+        if outline_id:
+            query["outline_id"] = outline_id
+            
+        doc = coll.find_one(query)
         if doc: 
             if "_id" in doc: del doc["_id"]
             return doc
@@ -213,7 +278,7 @@ def get_lore_by_doc_id(doc_id: str) -> Optional[Dict[str, Any]]:
         
     # 后备尝试本地 JSON (JSONL 格式)
     try:
-        db_path = get_db_path("worldview_db.json")
+        db_path = get_db_path("worldview_db.json", outline_id=outline_id)
             
         if os.path.exists(db_path):
             with open(db_path, "r", encoding="utf-8") as f:
@@ -229,7 +294,7 @@ def get_lore_by_doc_id(doc_id: str) -> Optional[Dict[str, Any]]:
         logger.error(f"Failed to read local JSON fallback for {doc_id}: {e}")
     return None
 
-def sync_lore_to_db(entity: Dict[str, Any]):
+def sync_lore_to_db(entity: Dict[str, Any], outline_id: Optional[str] = None, worldview_id: Optional[str] = None) -> None:
     """
     同步设定实体：
     1. 写入主库 (MongoDB/JSON) 存储完整父节点。
@@ -242,6 +307,10 @@ def sync_lore_to_db(entity: Dict[str, Any]):
     if 'timestamp' not in entity:
         import datetime
         entity['timestamp'] = datetime.datetime.now().isoformat()
+    if outline_id:
+        entity['outline_id'] = outline_id
+    if worldview_id:
+        entity['worldview_id'] = worldview_id
         
     # 2. 写入主库 (存储完整 Parent)
     try:
@@ -251,8 +320,9 @@ def sync_lore_to_db(entity: Dict[str, Any]):
         coll.update_one({"doc_id": entity["doc_id"]}, {"$set": entity}, upsert=True)
     except Exception as e:
         logger.warning(f"Failed to sync to MongoDB, falling back to JSONL append: {e}")
-        # Fallback to worldview_db.json
-        with open(get_db_path("worldview_db.json"), "a", encoding="utf-8") as f:
+        # Fallback to worldview_db.json (Namespaced)
+        db_path = get_db_path("worldview_db.json", outline_id=outline_id, worldview_id=worldview_id)
+        with open(db_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(entity, ensure_ascii=False) + "\n")
 
     # 3. 同步至 ChromaDB (父子结构)
@@ -265,14 +335,9 @@ def sync_lore_to_db(entity: Dict[str, Any]):
             google_api_key=key,
             task_type="retrieval_document"
         )
-        client = chromadb.PersistentClient(path="./chroma_db")
-        config = load_config()
-        collection_name = config.get("CHROMA_COLLECTION_NAME", "pga_worldview_v1")
-        vector_store = Chroma(
-            client=client, 
-            collection_name=collection_name, 
-            embedding_function=embeddings
-        )
+        
+        # Use worldview_id for vector database isolation
+        v_store = get_vector_store(worldview_id=(worldview_id or "default_wv"), outline_id=outline_id)
         
         # --- 实现父子切片逻辑 ---
         texts_to_index = []
@@ -419,39 +484,57 @@ def parse_json_safely(text: str) -> Any:
         except Exception:
             return None
 
-_vector_store = None
+# Cache for vector stores per novel
+_vector_store_cache = {}
 
-def get_vector_store():
-    global _vector_store
-    if _vector_store is not None:
-        return _vector_store
+def get_vector_store(worldview_id: str = "default_wv", outline_id: Optional[str] = None):
+    """
+    获取向量数据库实例。支持层级化隔离。
+    - 如果仅提供 worldview_id: 返回共享世界观设定库 (pga_wv_{wid})
+    - 如果提供 outline_id: 返回该小说特定的语境库 (pga_prose_{oid})
+    """
+    global _vector_store_cache
+    
+    # Use a safe collection name
+    if outline_id:
+        safe_id = outline_id.replace("-", "_")
+        collection_name = f"pga_prose_{safe_id}"
+    else:
+        safe_id = worldview_id.replace("-", "_")
+        collection_name = f"pga_wv_{safe_id}"
+    
+    if collection_name in _vector_store_cache:
+        return _vector_store_cache[collection_name]
         
     key = _key_manager.get_key()
     if not key:
         raise ValueError("GOOGLE_API_KEY missing for embeddings.")
     
-    # 注意：搜索时使用 retrieval_query 以获得更高相关性
     emb = GoogleGenerativeAIEmbeddings(
         model="models/gemini-embedding-001", 
         google_api_key=key, 
         task_type="retrieval_query"
     )
-    client = chromadb.PersistentClient(path="./chroma_db")
-    config = load_config()
-    collection_name = config.get("CHROMA_COLLECTION_NAME", "pga_worldview_v1")
-    _vector_store = Chroma(client=client, collection_name=collection_name, embedding_function=emb)
-    return _vector_store
+    
+    # Persistent storage for Chroma
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    chroma_path = os.path.join(base_dir, "chroma_db")
+    client = chromadb.PersistentClient(path=chroma_path)
+    
+    vs = Chroma(client=client, collection_name=collection_name, embedding_function=emb)
+    _vector_store_cache[collection_name] = vs
+    return vs
 
-def delete_lore_vector(doc_id: str):
+def delete_lore_vector(doc_id: str, outline_id: str = "default"):
     """从向量数据库中删除指定条目"""
     try:
-        vs = get_vector_store()
+        vs = get_vector_store(outline_id=outline_id)
         # Chroma (LangChain) supports delete by ids
         vs.delete(ids=[doc_id])
-        logger.info(f"[CHROMA DELETE] Successfully deleted vector for doc_id: {doc_id}")
+        logger.info(f"[CHROMA DELETE] Successfully deleted vector for doc_id: {doc_id} in {outline_id}")
         return True
     except Exception as e:
-        logger.error(f"[CHROMA DELETE ERROR] Failed to delete {doc_id}: {e}")
+        logger.error(f"[CHROMA DELETE ERROR] Failed to delete {doc_id} in {outline_id}: {e}")
         return False
 
 def get_lore_collection_name():
@@ -475,7 +558,7 @@ def get_mongodb_db():
 
 # --- Core Context Retrieval Logic ---
 
-def get_prohibited_rules():
+def get_prohibited_rules(outline_id: Optional[str] = None):
     """从数据库或本地文件动态获取禁止项目"""
     db = get_mongodb_db()
     try:
@@ -485,7 +568,7 @@ def get_prohibited_rules():
                 return rule_doc["content"]
         
         # Fallback to local JSON
-        db_path = get_db_path("worldview_db.json")
+        db_path = get_db_path("worldview_db.json", outline_id=outline_id)
         if os.path.exists(db_path):
             with open(db_path, "r", encoding="utf-8") as f:
                 for line in f:
@@ -498,7 +581,7 @@ def get_prohibited_rules():
     
     return "【最高禁令】禁止控制时间、禁止高维神明、禁止预测未来、禁止现实修改、禁止无限能量。"
 
-def get_worldview_context_by_category(query):
+def get_worldview_context_by_category(query, outline_id: Optional[str] = None):
     """
     根据查询内容识别涉及的世界观分类，并从 MongoDB/JSON 中检索“权威定义”。
     特别优先处理：种族 (Races) 和 势力 (Factions)。
@@ -525,7 +608,7 @@ def get_worldview_context_by_category(query):
         
     context_blocks = []
     try:
-        db_path = get_db_path("worldview_db.json")
+        db_path = get_db_path("worldview_db.json", outline_id=outline_id)
         if os.path.exists(db_path):
             with open(db_path, "r", encoding="utf-8") as f:
                 for line in f:
@@ -701,26 +784,27 @@ def get_all_templates():
 
 
 
-def get_unified_context(query, retry_on_429=True):
+def get_unified_context(query, outline_id="default", retry_on_429=True):
     """
-    智能路由检索：自动处理 429 错误并尝试 Key 轮换
+    智能路由检索：自动处理 429 错误并尝试 Key 轮换，支持按 outline_id 隔离。
     """
     context_blocks = []
     
-    # 1. 尝试从 MongoDB 检索权威定义 (Entity Design 意图)
+    # 1. 尝试从 MongoDB 检索权威设定 (如果未来支持 MongoDB 隔离，此处需更新)
+    # 目前保持全局或简单过滤
     db = get_mongodb_db()
     if db is not None:
         try:
-            # 简单文本匹配，优先找名称一致的
+            # 简单文本匹配
             cursor = db["lore"].find({"name": {"$regex": query, "$options": "i"}}).limit(3)
             for doc in cursor:
                 context_blocks.append(f"【权威设定: {doc['name']}】\n{doc['content']}")
         except Exception:
             pass
 
-    # 2. 尝试从 ChromaDB 检索背景资料 (Supportive Lore 意图)
+    # 2. 尝试从 ChromaDB 检索背景资料 (隔离不同小说)
     try:
-        vector_store = get_vector_store()
+        vector_store = get_vector_store(outline_id=outline_id)
         if vector_store:
             results = vector_store.similarity_search(query, k=5)
             for res in results:
@@ -728,23 +812,22 @@ def get_unified_context(query, retry_on_429=True):
     except Exception as e:
         if "429" in str(e) and retry_on_429:
             if rotate_api_key():
-                print(f"[lore_utils] API Key Rotated. Retrying context retrieval...")
-                return get_unified_context(query, retry_on_429=False)
-        print(f"[lore_utils] ChromaDB Search Error: {e}")
+                print(f"[lore_utils] API Key Rotated. Retrying context retrieval for {outline_id}...")
+                return get_unified_context(query, outline_id=outline_id, retry_on_429=False)
+        print(f"[lore_utils] ChromaDB Search Error ({outline_id}): {e}")
 
     if context_blocks:
         unique_blocks = list(dict.fromkeys(context_blocks))
         return "\n\n".join(unique_blocks[:8])
     return ""
 
-def get_grounded_context(query) -> List[Dict[str, str]]:
+def get_grounded_context(query, outline_id="default") -> List[Dict[str, str]]:
     """
-    获取带索引的素材块，用于 NotebookLM 模式的强制锚定。
-    返回: [{"id": "S1", "title": "...", "content": "..."}, ...]
+    获取带索引的素材块，支持按 outline_id 隔离。
     """
     sources = []
     
-    # 1. MongoDB 权威设定
+    # 1. MongoDB (暂未隔离)
     db = get_mongodb_db()
     if db is not None:
         try:
@@ -758,9 +841,9 @@ def get_grounded_context(query) -> List[Dict[str, str]]:
         except Exception:
             pass
 
-    # 2. ChromaDB 背景资料
+    # 2. ChromaDB (已隔离)
     try:
-        vector_store = get_vector_store()
+        vector_store = get_vector_store(outline_id=outline_id)
         if vector_store:
             results = vector_store.similarity_search(query, k=5)
             for res in results:
@@ -821,16 +904,14 @@ def get_outline_by_id(outline_id):
 # Entity Sentinel (实体哨兵) Utilities
 # ==========================================
 
-def get_entity_registry() -> Dict[str, List[str]]:
+def get_entity_registry(outline_id: str = "default") -> Dict[str, List[str]]:
     """
-    从 worldview_db.json 中扫描所有已注册实体的名称，按分类分组。
-    返回格式: {"race": ["熵族", "奥族", ...], "faction": ["联邦", ...], ...}
-    用于 A 层 - 在 Prompt 中注入已知实体清单，约束 LLM 优先复用。
+    从指定小说的 worldview_db.json 中扫描所有已注册实体的名称。
     """
     registry: Dict[str, List[str]] = {}
     
-    # 从本地 JSON 扫描
-    db_path = get_db_path("worldview_db.json")
+    # 从本地 JSON 隔离扫描
+    db_path = get_db_path("worldview_db.json", outline_id=outline_id)
     if os.path.exists(db_path):
         try:
             with open(db_path, "r", encoding="utf-8") as f:
@@ -888,7 +969,8 @@ def format_entity_registry_for_prompt(registry: Dict[str, List[str]]) -> str:
 
 
 def register_draft_entity(entity_name: str, entity_type: str, source_context: str, 
-                          source_agent: str = "unknown", entity_card: Optional[Dict] = None) -> bool:
+                          source_agent: str = "unknown", entity_card: Optional[Dict] = None,
+                          outline_id: Optional[str] = None) -> bool:
     """
     将新发现的实体写入"待审区" entity_drafts_db.json。
     C 层 - 不直接入正式库，等待用户审批。
@@ -911,7 +993,8 @@ def register_draft_entity(entity_name: str, entity_type: str, source_context: st
         "created_at": _dt.datetime.now().isoformat()
     }
     try:
-        with open(get_db_path("entity_drafts_db.json"), "a", encoding="utf-8") as f:
+        db_path = get_db_path("entity_drafts_db.json", outline_id=outline_id)
+        with open(db_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(record, ensure_ascii=False) + "\n")
         print(f"[Entity Sentinel] 新实体草案已登记: {entity_name} ({entity_type})")
         return True
@@ -921,14 +1004,14 @@ def register_draft_entity(entity_name: str, entity_type: str, source_context: st
 
 
 
-def get_draft_entities(status_filter: Optional[str] = "pending") -> List[Dict]:
+def get_draft_entities(status_filter: Optional[str] = "pending", outline_id: Optional[str] = None) -> List[Dict]:
     """获取待审实体列表。C 层 API 使用。"""
     drafts = []
-    db_path = get_db_path("entity_drafts_db.json")
+    db_path = get_db_path("entity_drafts_db.json", outline_id=outline_id)
     if not os.path.exists(db_path):
         return drafts
     try:
-        with open(get_db_path("entity_drafts_db.json"), "r", encoding="utf-8") as f:
+        with open(db_path, "r", encoding="utf-8") as f:
             for line in f:
                 if not line.strip():
                     continue
@@ -940,17 +1023,17 @@ def get_draft_entities(status_filter: Optional[str] = "pending") -> List[Dict]:
     return drafts
 
 
-def approve_draft_entity(entity_name: str) -> bool:
+def approve_draft_entity(entity_name: str, outline_id: Optional[str] = None) -> bool:
     """批准并持久化单个实体草案"""
     all_drafts = []
     target = None
     
-    db_path = get_db_path("entity_drafts_db.json")
+    db_path = get_db_path("entity_drafts_db.json", outline_id=outline_id)
     if not os.path.exists(db_path):
         return False
         
     try:
-        with open(get_db_path("entity_drafts_db.json"), "r", encoding="utf-8") as f:
+        with open(db_path, "r", encoding="utf-8") as f:
             for line in f:
                 if not line.strip():
                     continue
@@ -971,7 +1054,7 @@ def approve_draft_entity(entity_name: str) -> bool:
         
     # 持久化到正式设定库
     try:
-        add_to_worldview_db(target)
+        add_to_worldview_db(target, outline_id=outline_id)
     except Exception as e:
         print(f"[lore_utils] Failed to add {entity_name} to worldview: {e}")
         return False
@@ -986,7 +1069,7 @@ def approve_draft_entity(entity_name: str) -> bool:
         print(f"[lore_utils] Error writing drafts after approval: {e}")
         return False
 
-def add_to_worldview_db(target: Dict[str, Any]):
+def add_to_worldview_db(target: Dict[str, Any], outline_id: Optional[str] = None):
     """将草案实体转录并追加到正式世界观库"""
     entity_card = target.get("entity_card", {})
     if entity_card:
@@ -998,14 +1081,16 @@ def add_to_worldview_db(target: Dict[str, Any]):
         "name": target["name"],
         "category": target.get("type", "general"),
         "content": content,
-        "path": f"自动注册/{target.get('type', 'general')}/{target['name']}"
+        "path": f"自动注册/{target.get('type', 'general')}/{target['name']}",
+        "outline_id": outline_id # Ensure project isolation metadata
     }
-    with open(get_db_path("worldview_db.json"), "a", encoding="utf-8") as f:
+    with open(get_db_path("worldview_db.json", outline_id=outline_id), "a", encoding="utf-8") as f:
         f.write(json.dumps(canon_record, ensure_ascii=False) + "\n")
 
-def batch_approve_draft_entities(entity_names: List[str]) -> Dict[str, Any]:
+def batch_approve_draft_entities(entity_names: List[str], outline_id: Optional[str] = None) -> Dict[str, Any]:
     """批量批准实体草案"""
-    if not os.path.exists(get_db_path("entity_drafts_db.json")):
+    db_path = get_db_path("entity_drafts_db.json", outline_id=outline_id)
+    if not os.path.exists(db_path):
         return {"success": 0, "failed": len(entity_names)}
     
     all_drafts = []
@@ -1016,7 +1101,7 @@ def batch_approve_draft_entities(entity_names: List[str]) -> Dict[str, Any]:
     entity_names_copy = entity_names.copy()
     
     try:
-        with open(get_db_path("entity_drafts_db.json"), "r", encoding="utf-8") as f:
+        with open(db_path, "r", encoding="utf-8") as f:
             for line in f:
                 if not line.strip(): continue
                 data = json.loads(line)
@@ -1030,10 +1115,10 @@ def batch_approve_draft_entities(entity_names: List[str]) -> Dict[str, Any]:
         
         # 写入正式库
         for target in approved_targets:
-            add_to_worldview_db(target)
+            add_to_worldview_db(target, outline_id=outline_id)
             
         # 保存草案库
-        with open(get_db_path("entity_drafts_db.json"), "w", encoding="utf-8") as f:
+        with open(get_db_path("entity_drafts_db.json", outline_id=outline_id), "w", encoding="utf-8") as f:
             for d in all_drafts:
                 f.write(json.dumps(d, ensure_ascii=False) + "\n")
         
@@ -1042,9 +1127,10 @@ def batch_approve_draft_entities(entity_names: List[str]) -> Dict[str, Any]:
         logger.error(f"Batch approve failed: {e}")
         return {"success": approved_count, "failed": len(entity_names) - approved_count, "error": str(e)}
 
-def batch_reject_draft_entities(entity_names: List[str]) -> Dict[str, Any]:
+def batch_reject_draft_entities(entity_names: List[str], outline_id: Optional[str] = None) -> Dict[str, Any]:
     """批量拒绝实体草案"""
-    if not os.path.exists(get_db_path("entity_drafts_db.json")):
+    db_path = get_db_path("entity_drafts_db.json", outline_id=outline_id)
+    if not os.path.exists(db_path):
         return {"success": 0, "failed": len(entity_names)}
     
     all_drafts = []
@@ -1066,7 +1152,7 @@ def batch_reject_draft_entities(entity_names: List[str]) -> Dict[str, Any]:
                 all_drafts.append(data)
         
         # 保存草案库
-        with open(get_db_path("entity_drafts_db.json"), "w", encoding="utf-8") as f:
+        with open(get_db_path("entity_drafts_db.json", outline_id=outline_id), "w", encoding="utf-8") as f:
             for d in all_drafts:
                 f.write(json.dumps(d, ensure_ascii=False) + "\n")
         
@@ -1075,21 +1161,26 @@ def batch_reject_draft_entities(entity_names: List[str]) -> Dict[str, Any]:
         logger.error(f"Batch reject failed: {e}")
         return {"success": rejected_count, "failed": len(entity_names) - rejected_count, "error": str(e)}
     
-def sync_archive_to_all_stores(item_id: str, item_type: str, content: str, name: str = None) -> bool:
+def sync_archive_to_all_stores(item_id: str, item_type: str, content: str, name: Optional[str] = None, outline_id: Optional[str] = None) -> bool:
     """
     将修改后的条目同步到 MongoDB, ChromaDB 和技能系统 (SKILL)。
     """
-    print(f"[lore_utils] Syncing {item_type} ID: {item_id} to all stores...")
+    print(f"[lore_utils] Syncing {item_type} ID: {item_id} to all stores (Outline: {outline_id})...")
     
     # 1. MongoDB Sync (For Worldview)
     if item_type == 'worldview':
         db = get_mongodb_db()
+        db_path = get_db_path("worldview_db.json", outline_id=outline_id)
         if db is not None:
             try:
-                doc = db["lore"].find_one({"doc_id": item_id})
+                # Add outline_id to query if present
+                query = {"doc_id": item_id}
+                if outline_id: query["outline_id"] = outline_id
+                
+                doc = db["lore"].find_one(query)
                 if doc and doc.get("content") and doc.get("content") != content:
                     db["lore"].update_one(
-                        {"doc_id": item_id},
+                        query,
                         {
                             "$set": {"content": content, "name": name, "timestamp": datetime.now().isoformat()},
                             "$push": {
@@ -1132,8 +1223,8 @@ def sync_archive_to_all_stores(item_id: str, item_type: str, content: str, name:
             # 注意：item_id 必须与存储时的 ID 一致
             try:
                 collection.delete(ids=[item_id])
-            except:
-                pass
+            except Exception as e:
+                logger.warning(f"Failed to delete old vector for {item_id}: {e}")
             
             # 生成新 embedding 并插入 (显式调用 embedding 函数提取 3072 维度的高维向量)
             content_embeddings = emb.embed_documents([content])

@@ -32,7 +32,9 @@ from lore_utils import (
     format_entity_registry_for_prompt,
     register_draft_entity, 
     get_category_template,
-    get_db_path
+    get_category_template,
+    get_db_path,
+    dispatch_log
 )
 
 # ==========================================
@@ -43,6 +45,7 @@ class WritingState(TypedDict):
     正文执行 Agent 运行时的状态机上下文。
     """
     # 输入信息
+    worldview_id: str           # 所属世界观 ID
     outline_id: str             # 已保存的大纲 ID
     outline_content: str        # 大纲全文内容 (用于参考)
     current_act: str            # 当前编写的小说章节/幕
@@ -57,6 +60,7 @@ class WritingState(TypedDict):
     draft_content: str          # 生成的正文初稿
     audit_feedback: str         # 审计意见/逻辑漏洞报告
     user_feedback: str          # 用户的人工意见
+    novel_summary: str          # 小说全局简介 (创意原点)
     is_audit_passed: bool       # 审计是否通过
     is_approved: bool           # 用户是否批准
     status_message: str         # 执行进度描述
@@ -75,14 +79,18 @@ class WritingState(TypedDict):
 # Nodes Implementation
 # ==========================================
 
-def plan_scenes_func(state: WritingState):
+def plan_scenes_func(state: WritingState, config: dict):
     """场次拆解节点 (Scene Planner)"""
+    dispatch_log(config, "正在初始化场次拆分引擎...")
     print(f"\n[DEBUG] plan_scenes_func entry. State keys: {list(state.keys())}")
     outline_content = state.get('outline_content', '')
     current_act = state.get('current_act', '')
     
     prompt = f"""你是一个专业的小说场次策划师。
 你的任务是将大纲拆解为具体的“原子场次”。必须输出 JSON。
+
+【小说概览 (创意原点)】
+{state.get('novel_summary', '未提供')}
 
 【大纲内容】
 {outline_content}
@@ -98,7 +106,8 @@ def plan_scenes_func(state: WritingState):
   ]
 }}
 """
-    res = get_llm(json_mode=True).invoke(prompt)
+    res = get_llm(json_mode=True, agent_name="writing").invoke(prompt)
+    dispatch_log(config, "LLM 已返回拆分方案，正在解析 JSON...")
     data = parse_json_safely(res.content)
     if not data:
         return {"status_message": "❌ 场次拆解失败：JSON 解析异常"}
@@ -111,8 +120,9 @@ def plan_scenes_func(state: WritingState):
         "status_message": f"📑 已成功将大纲拆解为 {len(scenes)} 个具体场次。准备进入首场创作..."
     }
 
-def writing_retriever_node(state: WritingState):
+def writing_retriever_node(state: WritingState, config: dict):
     """正文 RAG 检索节点"""
+    dispatch_log(config, "开始执行 RAG 知识检索...")
     print(f"\n[DEBUG] writing_retriever_node entry.")
     val = state.get('active_scene_index')
     idx = int(val) if isinstance(val, (int, str)) else 0
@@ -124,17 +134,30 @@ def writing_retriever_node(state: WritingState):
     query = f"{str(scene.get('title') or '')} {str(scene.get('description') or '')}"
     
     # 执行 RAG 检索
-    sources = get_grounded_context(query)
-    grounded_context_str = format_grounded_context_for_prompt(sources)
+    outline_id = state.get('outline_id', 'default')
+    worldview_id = state.get('worldview_id', 'default_wv')
+    
+    # 1. 从世界观库检索设定 (pga_wv_{wid})
+    dispatch_log(config, f"正在从世界观 '{worldview_id}' 检索核心设定...")
+    wv_sources = get_grounded_context(query, worldview_id=worldview_id)
+    
+    # 2. 从正文存档库检索前文语境 (pga_prose_{oid})
+    dispatch_log(config, f"正在从项目 '{outline_id}' 检索前文语境...")
+    outline_sources = get_grounded_context(query, outline_id=outline_id, worldview_id=worldview_id)
+    
+    all_sources = wv_sources + outline_sources
+    dispatch_log(config, f"检索完成，提取到 {len(all_sources)} 条素材锚点。")
+    grounded_context_str = format_grounded_context_for_prompt(all_sources)
     
     return {
         "context_data": grounded_context_str,
-        "grounding_sources": sources,
-        "status_message": f"🔍 正在从知识库为第 {idx+1} 场检索世界观素材并提取锚点 [S1-S{len(sources)}]..."
+        "grounding_sources": all_sources,
+        "status_message": f"🔍 正在执行双层 RAG：世界观 [S1-{len(wv_sources)}] + 前文 [S{len(wv_sources)+1}-{len(all_sources)}]..."
     }
 
-def load_context_func(state: WritingState):
+def load_context_func(state: WritingState, config: dict):
     """语境加载节点 - 融合分布式 SKILL 与 实体注册表"""
+    dispatch_log(config, "正在对齐创作协议与实体禁令...")
     print(f"\n[DEBUG] load_context_func entry.")
     
     # 1. 加载分布式 SKILL (高优控制)
@@ -148,7 +171,9 @@ def load_context_func(state: WritingState):
         skills_context = "\n[警告] 未能加载分布式 SKILL 约束。\n"
 
     # 2. 加载实体注册表 (A 层约束)
-    entity_registry = get_entity_registry()
+    outline_id = state.get('outline_id', 'default')
+    worldview_id = state.get('worldview_id', 'default_wv')
+    entity_registry = get_entity_registry(outline_id=outline_id, worldview_id=worldview_id)
     entity_constraint = format_entity_registry_for_prompt(entity_registry)
 
     current_context = state.get('context_data', '')
@@ -157,8 +182,9 @@ def load_context_func(state: WritingState):
         "status_message": f"⚙️ 语境协议已对齐，正在根据锚定素材调用 LLM 生成文学正文..."
     }
 
-def write_draft_func(state: WritingState):
+def write_draft_func(state: WritingState, config: dict):
     """正文生成节点"""
+    dispatch_log(config, "准备调用 LLM 进行正文创作...")
     print(f"\n[DEBUG] write_draft_func entry.")
     
     val = state.get('active_scene_index')
@@ -178,6 +204,7 @@ def write_draft_func(state: WritingState):
 
 {feedback_section}
 
+【全局概括】{state.get('novel_summary', '无')}
 【大纲】{state.get('outline_content', '')}
 【场次计划】{str(scene.get('title') or '')}: {str(scene.get('description') or '')}
 【语境】{state.get('context_data', '')}
@@ -190,7 +217,9 @@ def write_draft_func(state: WritingState):
 2. 不要为了标注而标注，只有在使用了提供的源素材（References）中的特定事实时才需要标注。
 3. 文学性的描写、抒情、对话（非设定解释类）无需标注。
 """
-    res = get_llm().invoke(prompt)
+    dispatch_log(config, f"LLM 正在构思第 {idx+1} 场正文内容 (此过程可能较长)...")
+    res = get_llm(agent_name="writing").invoke(prompt)
+    dispatch_log(config, "文学正文初稿已生成。")
     retries_val = state.get("retry_count", 0)
     current_retries = int(retries_val) if isinstance(retries_val, (int, str)) else 0
     
@@ -201,8 +230,9 @@ def write_draft_func(state: WritingState):
         "status_message": f"🖋️ 第 {idx+1} 场文学正文已生成，正在执行逻辑矛盾与素材引用一致性审计..."
     }
 
-def audit_logic_func(state: WritingState):
+def audit_logic_func(state: WritingState, config: dict):
     """逻辑审计节点"""
+    dispatch_log(config, "启动逻辑审计引擎...")
     print(f"\n[DEBUG] audit_logic_func entry.")
     prohibited_items = get_prohibited_rules()
     
@@ -214,7 +244,10 @@ def audit_logic_func(state: WritingState):
         return {"is_audit_passed": False, "status_message": "审计信息缺失"}
         
     scene = scene_list[idx]
-    worldview_rules = get_worldview_context_by_category(f"{str(scene.get('title') or '')} {str(scene.get('description') or '')}")
+    worldview_rules = get_worldview_context_by_category(
+        f"{str(scene.get('title') or '')} {str(scene.get('description') or '')}", 
+        worldview_id=state.get('worldview_id', 'default_wv')
+    )
     char_status = state.get("char_status_summary", "无")
     
     prompt = f"""小说逻辑与素材锚定审计员。检查冲突与引用准确性。
@@ -236,7 +269,7 @@ def audit_logic_func(state: WritingState):
 
 输出 JSON: {{"is_consistent": true/false, "audit_log": "...", "grounding_score": 0-100}}
 """
-    res = get_llm(json_mode=True).invoke(prompt)
+    res = get_llm(json_mode=True, agent_name="writing").invoke(prompt)
     data = parse_json_safely(res.content)
     is_ok = data.get("is_consistent", False) if data else False
     
@@ -255,7 +288,8 @@ def audit_logic_func(state: WritingState):
 正文：
 {draft_content[:2000]}
 """
-        ent_res = get_llm(json_mode=True).invoke(extract_prompt)
+        dispatch_log(config, "实体哨兵正在扫描正文中的新专有名词...")
+        ent_res = get_llm(json_mode=True, agent_name="writing").invoke(extract_prompt)
         extracted = parse_json_safely(ent_res.content)
         
         if isinstance(extracted, list):
@@ -307,7 +341,11 @@ def prose_saver_func(state: WritingState):
         "content": state.get('draft_content', ''),
         "timestamp": datetime.datetime.now().isoformat()
     }
-    with open(get_db_path("prose_db.json"), 'a', encoding='utf-8') as f:
+    outline_id = state.get('outline_id', 'unknown')
+    worldview_id = state.get('worldview_id', 'default_wv')
+    db_path = get_db_path("prose_db.json", outline_id=outline_id, worldview_id=worldview_id)
+    
+    with open(db_path, 'a', encoding='utf-8') as f:
         f.write(json.dumps(record, ensure_ascii=False) + "\n")
         
     return {
@@ -327,7 +365,7 @@ def snapshot_node_func(state: WritingState):
 正文: {state.get('draft_content', '')}
 输出 JSON: {{"char_status": "...", "scene_status": "...", "visual_description": "..."}}
 """
-    res = get_llm(json_mode=True).invoke(prompt)
+    res = get_llm(json_mode=True, agent_name="writing").invoke(prompt)
     data = parse_json_safely(res.content)
     
     return {

@@ -8,22 +8,22 @@
 
 ### 1层：框架法典 (Framework Layer)
 
-- **文件**: [PGA_LOGIC.md](file:///Users/harry/Documents/git/novel_agent/.gemini/skills/framework/PGA_LOGIC.md)
+- **文件**: [PGA_LOGIC.md](./.gemini/skills/framework/PGA_LOGIC.md)
 - **核心内容**: 0-4 逻辑闭环、节点执行 Schema、自审审计标准、Dispatcher 路由规则。
 - **作用**: 定义"如何做 Agent"，属于底层操作系统级指令。
 
 ### 2层：剧情锚点 (Lore/Anchor Layer)
 
-- **文件**: [ANCHORS.md](file:///Users/harry/Documents/git/novel_agent/.gemini/skills/lore/ANCHORS.md)
+- **文件**: [ANCHORS.md](./.gemini/skills/lore/ANCHORS.md)
 - **核心内容**: 核心冲突节点、人物生死、世界观不可逆转折。
 - **作用**: 定义"故事的底线"，属于叙事宪法级指令，阻止"吃书"。
 
 ### 3层：执行目录 (Catalog Layer)
 
-- **文件**: [ACTIVE_WINDOW.md](file:///Users/harry/Documents/git/novel_agent/.gemini/skills/catalog/ACTIVE_WINDOW.md)
+- **文件**: [ACTIVE_WINDOW.md](./.gemini/skills/catalog/ACTIVE_WINDOW.md)
 - **核心内容**: 当前写作任务（Chapter N）及其前后 5 章的精细大纲。
 - **作用**: 定义"施工蓝图"，提供高精细节，防止逻辑漂移。
-- **补充**: 历史章节数据通过物理切片存放在 `catalog/ARCHIVE/` 中，由 [MASTER_INDEX.md](file:///Users/harry/Documents/git/novel_agent/.gemini/skills/catalog/MASTER_INDEX.md) 统一索引。
+- **补充**: 历史章节数据通过物理切片存放在 `catalog/ARCHIVE/` 中，由 [MASTER_INDEX.md](./.gemini/skills/catalog/MASTER_INDEX.md) 统一索引。
 
 ---
 

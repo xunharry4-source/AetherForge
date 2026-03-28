@@ -12,38 +12,64 @@ from ui.layout import page_layout
 
 FLASK_API = 'http://localhost:5005'
 
-def get_outlines():
-    all_items = get_all_lore_items()
-    return [item for item in all_items if item.get('type') == 'outline']
+async def get_outlines():
+    async with httpx.AsyncClient() as client:
+        res = await client.get(f'{FLASK_API}/api/outlines/list', timeout=10)
+        return res.json() if res.status_code == 200 else []
+
+async def get_worldviews():
+    async with httpx.AsyncClient() as client:
+        res = await client.get(f'{FLASK_API}/api/worldviews/list', timeout=10)
+        return res.json() if res.status_code == 200 else []
 
 @ui.page('/outlines')
-def outlines_page():
-    outlines = get_outlines()
+async def outlines_page():
+    outlines = await get_outlines()
+    worldviews = await get_worldviews()
     
     with page_layout():
+        # --- Worldview Management Section ---
+        with ui.row().classes('w-full items-center justify-between mb-4 mt-2'):
+            with ui.column():
+                ui.label('世界观管理').classes('text-2xl font-bold text-white')
+                ui.label('管理独立的世界观容器，每个容器拥有独立的设定库。').classes('text-slate-400 text-sm')
+            ui.button('创建世界观', icon='public', on_click=lambda: open_create_wv_dialog()).props('outline color="cyan"')
+
+        with ui.row().classes('w-full gap-4 mb-8 overflow-x-auto pb-2'):
+            for wv in worldviews:
+                with ui.card().classes('bg-slate-800/40 border border-slate-700 min-w-[250px] p-4'):
+                    ui.label(wv.get('name')).classes('text-lg font-bold text-cyan-300')
+                    ui.label(wv.get('summary', '无简介')[:50] + '...').classes('text-slate-400 text-xs mb-2 h-8 overflow-hidden')
+                    with ui.row().classes('w-full justify-between items-center'):
+                        ui.label(f"ID: {wv.get('worldview_id')}").classes('text-[10px] text-slate-500')
+                        ui.badge('ACTIVE', color='green-9').classes('text-[8px]')
+
+        ui.separator().classes('my-6 border-slate-700')
+
+        # --- Novel Outlines Section ---
         with ui.row().classes('w-full items-center justify-between mb-4'):
             with ui.column():
-                ui.label('小说大纲管理').classes('text-2xl font-bold text-white')
-                ui.label('创建、编辑并同步你的小说全局框架。').classes('text-slate-400 text-sm')
-            ui.button('新建大纲', icon='add', on_click=lambda: open_create_dialog()).props('color="cyan" text-color="black"')
+                ui.label('小说大纲 / 项目').classes('text-2xl font-bold text-white')
+                ui.label('在选定的世界观下创作具体的小说项目。').classes('text-slate-400 text-sm')
+            ui.button('新建小说项目', icon='add', on_click=lambda: open_create_dialog(worldviews)).props('color="cyan" text-color="black"')
 
         if not outlines:
             with ui.card().classes('w-full p-12 items-center justify-center bg-slate-800/20 border-dashed border-2 border-slate-700'):
                 ui.icon('assignment_late', size='4rem').classes('text-slate-600 mb-4')
-                ui.label('尚未创建任何大纲').classes('text-slate-400 italic')
-                ui.button('立即开始创作', on_click=lambda: open_create_dialog()).props('flat color="cyan"')
+                ui.label('尚未创建任何小说项目').classes('text-slate-400 italic')
+                ui.button('立即开始创作', on_click=lambda: open_create_dialog(worldviews)).props('flat color="cyan"')
         else:
             with ui.grid(columns=3).classes('w-full gap-4'):
                 for outline in outlines:
                     with ui.card().classes('bg-slate-800 border border-slate-700 hover:border-cyan-500/50 transition-all cursor-pointer p-0 overflow-hidden') as card:
                         with ui.column().classes('p-4 w-full'):
                             with ui.row().classes('w-full items-start justify-between'):
-                                ui.label(outline.get('name', '未命名')).classes('text-lg font-bold text-cyan-100 line-clamp-1')
-                                ui.badge('OUTLINE', color='cyan-9').classes('text-[10px]')
+                                ui.label(outline.get('title') or outline.get('name', '未命名')).classes('text-lg font-bold text-cyan-100 line-clamp-1')
+                                ui.badge(outline.get('worldview_id', 'default_wv'), color='indigo-9').classes('text-[10px]')
                             
                             ui.label(outline.get('timestamp', 'N/A')).classes('text-[10px] text-slate-500 mb-2')
                             
-                            content_preview = outline.get('content', '')[:100] + '...'
+                            content_preview = (outline.get('summary') or outline.get('content', ''))[:100] + '...'
                             ui.label(content_preview).classes('text-slate-400 text-sm line-clamp-3 mb-4 h-15')
                             
                             with ui.row().classes('w-full justify-end gap-2 pt-2 border-t border-slate-700'):
@@ -52,20 +78,52 @@ def outlines_page():
                                 ui.button(icon='delete', on_click=lambda o=outline: confirm_delete(o)).props('flat round color="negative" size="sm"').tooltip('删除')
 
     # --- Dialogs ---
-    def open_create_dialog():
+    def open_create_dialog(worldviews):
         with ui.dialog() as dialog, ui.card().classes('w-[800px] bg-slate-900 border border-slate-700'):
-            ui.label('创作新大纲').classes('text-xl font-bold text-white mb-4')
-            query_input = ui.input('你的创作灵感', placeholder='例如：写一个关于星际赏金猎人在废土行星发现古文明遗迹的故事...').classes('w-full mb-4')
-            ui.label('大纲 Agent 将根据此灵感及世界观设定生成结构化大纲。').classes('text-slate-500 text-xs mb-6')
+            ui.label('创作新小说项目').classes('text-xl font-bold text-white mb-4')
+            
+            wv_options = {wv['worldview_id']: wv['name'] for wv in worldviews}
+            wv_select = ui.select(wv_options, value=next(iter(wv_options)) if wv_options else None, label='所属世界观').classes('w-full mb-4')
+            
+            name_input = ui.input('小说名称', placeholder='输入小说名称...').classes('w-full mb-4')
+            query_input = ui.input('核心创作灵感', placeholder='例如：写一个关于星际赏金猎人发现古文明遗迹的故事...').classes('w-full mb-4')
+            
+            ui.label('大纲 Agent 将根据此灵感及选定的世界观设定生成结构化大纲。').classes('text-slate-500 text-xs mb-6')
             
             with ui.row().classes('w-full justify-end gap-3'):
                 ui.button('取消', on_click=dialog.close).props('flat')
-                ui.button('启动 Agent 生成', on_click=lambda: start_generation(dialog, query_input.value)).props('color="cyan" text-color="black"')
+                ui.button('启动 Agent 生成', on_click=lambda: start_generation(dialog, query_input.value, name_input.value, wv_select.value)).props('color="cyan" text-color="black"')
+
+    def open_create_wv_dialog():
+        with ui.dialog() as dialog, ui.card().classes('w-[600px] bg-slate-900 border border-slate-700'):
+            ui.label('创建新世界观').classes('text-xl font-bold text-white mb-4')
+            name_input = ui.input('世界观名称', placeholder='例如：万象星际、赛博长城...').classes('w-full mb-4')
+            summary_input = ui.textarea('背景简介', placeholder='简要描述该世界观的核心逻辑与背景...').classes('w-full mb-4')
+            
+            with ui.row().classes('w-full justify-end gap-3'):
+                ui.button('取消', on_click=dialog.close).props('flat')
+                ui.button('创建', on_click=lambda: save_worldview(dialog, name_input.value, summary_input.value)).props('color="cyan" text-color="black"')
         dialog.open()
 
-    async def start_generation(dialog, query):
-        if not query:
-            ui.notify('请输入创作灵感', type='warning')
+    async def save_worldview(dialog, name, summary):
+        if not name:
+            ui.notify('请输入世界观名称', type='warning')
+            return
+        try:
+            async with httpx.AsyncClient() as client:
+                res = await client.post(f'{FLASK_API}/api/worldviews/create', json={'name': name, 'summary': summary})
+                if res.status_code == 200:
+                    ui.notify('世界观创建成功', type='positive')
+                    dialog.close()
+                    ui.navigate.to('/outlines')
+                else:
+                    ui.notify(f'创建失败: {res.text}', type='negative')
+        except Exception as e:
+            ui.notify(f'创建异常: {e}', type='negative')
+
+    async def start_generation(dialog, query, name, worldview_id):
+        if not query or not name:
+            ui.notify('请输入小说名称与创作灵感', type='warning')
             return
         dialog.close()
         
@@ -85,6 +143,8 @@ def outlines_page():
                 async with client.stream('POST', f'{FLASK_API}/api/agent/query', json={
                     'agent_type': 'outline',
                     'query': query,
+                    'name': name,
+                    'worldview_id': worldview_id,
                     'thread_id': thread_id
                 }, timeout=120) as response:
                     

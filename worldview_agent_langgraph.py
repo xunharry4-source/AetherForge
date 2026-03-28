@@ -12,6 +12,7 @@ Worldview Agent (世界观 Agent) - PGA 0-4 协议小说创作引擎核心组件
 """
 import os
 import json
+import datetime
 from typing import Annotated, TypedDict, List, Union
 from langgraph.graph import StateGraph, START, END
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
@@ -28,7 +29,12 @@ from lore_utils import (
     get_category_template,
     upsert_category_template,
     parse_json_safely,
-    get_evolution_rules
+    get_category_template,
+    upsert_category_template,
+    parse_json_safely,
+    get_evolution_rules,
+    get_db_path,
+    dispatch_log
 )
 
 # ==========================================
@@ -52,6 +58,8 @@ class AgentState(TypedDict):
         status_message: 用于 UI 显示的实时状态描述。
     """
     query: str
+    worldview_id: str      # 所属世界观 ID
+    outline_id: Optional[str] # 关联的大纲/小说 ID (可选)
     context: str
     proposal: str
     review_log: str
@@ -60,7 +68,7 @@ class AgentState(TypedDict):
     audit_count: int       # 当前自审重试次数
     category: str 
     doc_id: str
-    scratchpad: list[str]  # Autoresearch 草稿本，用于内部推演
+    scratchpad: List[str]  # Autoresearch 草稿本，用于内部推演
     defense_log: str       # 防御节点产生的错误信息
     research_confidence: float # 当前设定的内部自信度 (0.0 - 1.0)
     extracted_facts: str   # 研究所得的关键推演事实
@@ -137,7 +145,7 @@ class ResearchReflectionSchema(pydantic.BaseModel):
     reflection_notes: str = pydantic.Field(description="本轮反思的思考过程与后续还需要推演的疑问点")
     extracted_facts: str = pydantic.Field(description="截至目前推演出的所有确定性关键事实结论")
 
-def autoresearch_node(state: AgentState):
+def autoresearch_node(state: AgentState, config: dict):
     """
     自主研究循环节点 (Autoresearch Core)。
     职责：
@@ -145,9 +153,11 @@ def autoresearch_node(state: AgentState):
     2. 判断当前背景信息是否足以构建一个无懈可击的 PGA 设定。
     3. 将推演轨迹写入 scratchpad，将确定的事实写入 extracted_facts。
     """
+    dispatch_log(config, "启动 Autoresearch 深度推演引擎...")
     print(f"\n[DEBUG] autoresearch_node entry. State keys: {list(state.keys())}")
     query = state.get('query', '')
-    rag_context = get_unified_context(query)
+    worldview_id = state.get('worldview_id', 'default_wv')
+    rag_context = get_unified_context(query, worldview_id=worldview_id)
     prohibited_items = get_prohibited_rules()
     
     current_scratchpad = state.get('scratchpad', [])
@@ -176,7 +186,8 @@ TASK:
 必须输出为 JSON，匹配以下 Schema：
 {{"confidence_score": float, "reflection_notes": "...", "extracted_facts": "..."}}
 """
-    res = get_llm(json_mode=True).invoke(prompt)
+    res = get_llm(json_mode=True, agent_name="worldview").invoke(prompt)
+    dispatch_log(config, f"Autoresearch 完成一轮推演，置信度评价中...")
     try:
         data = parse_json_safely(res.content)
         validated = ResearchReflectionSchema(**data)
@@ -204,7 +215,7 @@ TASK:
             "status_message": "Autoresearch 遭遇解析乱流，强制推进。"
         }
 
-def generator_node(state: AgentState):
+def generator_node(state: AgentState, config: dict):
     """
     生成节点 (Proposal Generator)。
     责任:
@@ -213,6 +224,7 @@ def generator_node(state: AgentState):
     3. 模板注入: 获取对应分类的 JSON 模板，确保输出格式合规。
     4. 创作生成: 调用 LLM 生成符合 PGA 0-4 逻辑的设定提案。
     """
+    dispatch_log(config, "正在识别设定分类并加载 RAG 上下文...")
     print(f"\n[DEBUG] generator_node entry. State keys: {list(state.keys())}")
     query = state.get('query', '')
     if not query:
@@ -254,7 +266,7 @@ def generator_node(state: AgentState):
     if not template_data and category != "general":
         # 如果模板不存在，先生成一个
         meta_prompt = f"你是一个世界观架构师。请为【{category}】这个分类创建一个标准的 JSON 模板和参考例子。必须输出合法有效 JSON。"
-        meta_res = get_llm(json_mode=True).invoke(meta_prompt)
+        meta_res = get_llm(json_mode=True, agent_name="worldview").invoke(meta_prompt)
         try:
             template_data = parse_json_safely(meta_res.content)
             if template_data:
@@ -262,10 +274,11 @@ def generator_node(state: AgentState):
         except Exception:
             template_data = {"template": "基础文本描述", "example": "无"}
 
-    # 3. 获取上下文
-    rag_context = get_unified_context(query)
+    # 3. 获取上下文 (Namespaced)
+    worldview_id = state.get('worldview_id', 'default_wv')
+    rag_context = get_unified_context(query, worldview_id=worldview_id)
     prohibited_items = get_prohibited_rules()
-    worldview_rules = get_worldview_context_by_category(query)
+    worldview_rules = get_worldview_context_by_category(query, worldview_id=worldview_id)
     
     template_str = json.dumps(template_data.get("template", {}), ensure_ascii=False, indent=2) if template_data else "自由发挥"
     example_str = json.dumps(template_data.get("example", {}), ensure_ascii=False, indent=2) if template_data else "无"
@@ -319,7 +332,8 @@ def generator_node(state: AgentState):
 TASK: 请完成设定提案。必须输出为 JSON 格式。
 """
     
-    res = get_llm(json_mode=True).invoke(full_prompt)
+    res = get_llm(json_mode=True, agent_name="worldview").invoke(full_prompt)
+    dispatch_log(config, "设定提案初稿已生成。")
     _iter_val = state.get('iterations', 0)
     curr_iterations = int(_iter_val) if isinstance(_iter_val, (int, str)) else 0
     
@@ -354,12 +368,13 @@ class WorldviewDefenseSchema(pydantic.BaseModel):
     class Config:
         extra = 'allow'  # 允许由动态模板引入的额外字段
 
-def defense_node(state: AgentState):
+def defense_node(state: AgentState, config: dict):
     """
     防线节点 (Cookbook Structured Defense Validator)。
     将由 generator 产出的非结构化或格式损坏的 JSON 进行强制拦截。
     如果遭遇 Pydantic 解析失败，或者检测到明显的幻觉格式，立刻抛弃并回炉。
     """
+    dispatch_log(config, "正在执行结构化防御检查 (Cookbook Defense)...")
     print(f"\n[DEBUG] defense_node entry. State keys: {list(state.keys())}")
     proposal = state.get('proposal', '')
     
@@ -399,7 +414,7 @@ def defense_node(state: AgentState):
 
 
 
-def reviewer_node(state: AgentState):
+def reviewer_node(state: AgentState, config: dict):
     """
     审计节点 (Logic Reviewer)。
     
@@ -408,6 +423,7 @@ def reviewer_node(state: AgentState):
     2. 隔离性审计: 检查提案是否跨越了逻辑边界 (如在种族设定中讨论地缘政治)。
     3. 逻辑闭环: 如果审计不通过，将 is_approved 设为 False，触发图回到 generator_node 进行修正。
     """
+    dispatch_log(config, "开始执行 0-4 协议逻辑一致性审计...")
     print(f"\n[DEBUG] reviewer_node entry. State keys: {list(state.keys())}")
     query = state.get('query', '')
     proposal = str(state.get('proposal') or '')
@@ -416,7 +432,7 @@ def reviewer_node(state: AgentState):
     category_info = CATEGORY_LOGIC_TEMPLATES.get(category, {"title": "一般世界观", "logic": "遵循PGA底层物理与逻辑。"})
     
     prohibited_items = get_prohibited_rules()
-    worldview_rules = get_worldview_context_by_category(query)
+    worldview_rules = get_worldview_context_by_category(query, worldview_id=state.get('worldview_id', 'default_wv'))
     
     full_prompt = f"""你是一个专精于“万象星际协议体 (PGA)”的逻辑审核官。
 必须输出 JSON 格式。
@@ -433,7 +449,7 @@ def reviewer_node(state: AgentState):
 """
     _count_val = state.get('audit_count', 0)
     count = int(_count_val) if isinstance(_count_val, (int, str)) else 0
-    res = get_llm(json_mode=True).invoke(full_prompt)
+    res = get_llm(json_mode=True, agent_name="worldview").invoke(full_prompt)
     try:
         audit_data = parse_json_safely(res.content)
         if not audit_data:
@@ -489,25 +505,30 @@ def human_node(state: AgentState):
     is_approved = any(word in str(user_input) for word in ["批准", "通过", "OK", "yes", "保存"])
     return {"user_feedback": str(user_input), "is_approved": is_approved, "status_message": "正在处理您的反馈..."}
 
-def saver_node(state: AgentState):
+def saver_node(state: AgentState, config: dict):
     """
     存储节点 (Sync Committer)。
-    
-    责任:
+    职责:
     1. 事务写入: 将最终获批的设定同步写入本地磁盘 (worldview_db.json) 和向量库 (ChromaDB)。
     2. 状态收尾: 清理会话状态，准备进入下一个创作循环。
     """
     print(f"\n[DEBUG] saver_node entry. State keys: {list(state.keys())}")
+    outline_id = state.get('outline_id', 'default')
+    doc_id = state.get('doc_id') or f"wv_{datetime.datetime.now().strftime('%H%M%S')}"
+    
     doc = {
+        "doc_id": doc_id,
         "category": state.get('category', 'general'),
         "content": state.get('proposal',''),
         "iterations": state.get('iterations', 0),
         "query": state.get('query',''),
-        "timestamp": str(os.getenv("CURRENT_TIME", "2026-03-19T13:00:00"))
+        "timestamp": str(datetime.datetime.now().isoformat())
     }
-    print(f"[DEBUG] saver_node: Attempting to save to worldview_db.json...")
-    db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "worldview_db.json")
-    os.makedirs(os.path.dirname(db_path), exist_ok=True)
+    
+    # 1. 写入本地 JSON 存档 (Namespaced)
+    worldview_id = state.get('worldview_id', 'default_wv')
+    print(f"[DEBUG] saver_node: Attempting to save to worldview_db.json for {worldview_id}...")
+    db_path = get_db_path("worldview_db.json", worldview_id=worldview_id)
     try:
         with open(db_path, "a", encoding="utf-8") as f:
             f.write(json.dumps(doc, ensure_ascii=False) + "\n")
@@ -516,16 +537,17 @@ def saver_node(state: AgentState):
         print(f"[DEBUG] saver_node: Save failed: {e}")
         return {"is_approved": False, "status_message": f"存储失败: {e}"}
         
-    # try:
-    #     v_store = get_vector_store()
-    #     if v_store:
-    #         v_store.add_texts(
-    #             texts=[state.get('proposal','')], 
-    #             metadatas=[{"category": state.get('category', 'general'), "source": "agent_generated"}]
-    #         )
-    #         print(f"[DEBUG] saver_node: Sync to Vector Store successful.")
-    # except Exception as e:
-    #     print(f"[DEBUG] saver_node: Sync to Vector Store failed: {e}")
+    # 2. 同步到向量库 (Namespaced)
+    try:
+        v_store = get_vector_store(worldview_id=worldview_id)
+        if v_store:
+            v_store.add_texts(
+                texts=[state.get('proposal','')], 
+                metadatas=[{"doc_id": doc_id, "name": state.get('query', ''), "category": state.get('category', 'general')}]
+            )
+            print(f"[DEBUG] saver_node: Sync to Vector Store successful.")
+    except Exception as e:
+        print(f"[DEBUG] saver_node: Sync to Vector Store failed: {e}")
 
     return {"is_approved": True, "status_message": "✨ 设定已通过审计并成功同步至 PGA 核心数据库。"}
 
