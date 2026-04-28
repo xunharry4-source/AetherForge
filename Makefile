@@ -1,5 +1,5 @@
-PYTHON = ./env/bin/python
-PIP = ./env/bin/pip
+PYTHON = ./.venv/bin/python
+PIP = ./.venv/bin/pip
 SYSTEM_PYTHON = /opt/homebrew/opt/python@3.12/bin/python3.12
 FRONTEND_DIR = frontend
 UI_DIR = ui
@@ -8,7 +8,7 @@ UI_DIR = ui
 
 help:
 	@echo "Novel Agent - Management Commands:"
-	@echo "  make install  - Create venv (env) and install dependencies"
+	@echo "  make install  - Create venv (.venv) and install dependencies"
 	@echo "  make start    - Run backend, NiceGUI UI, and Vite frontend in foreground"
 	@echo "  make stop     - Kill background processes"
 	@echo "  make restart  - Stop and start again"
@@ -16,9 +16,9 @@ help:
 	@echo "  make clean    - Remove log files and pid files"
 
 install:
-	@echo "📦 Creating virtual environment (env) using $(SYSTEM_PYTHON)..."
-	@if [ ! -d "env" ]; then \
-		unset PYTHONPATH && unset PYTHONHOME && $(SYSTEM_PYTHON) -m venv env; \
+	@echo "📦 Creating virtual environment (.venv) using $(SYSTEM_PYTHON)..."
+	@if [ ! -d ".venv" ]; then \
+		unset PYTHONPATH && unset PYTHONHOME && $(SYSTEM_PYTHON) -m venv .venv; \
 	fi
 	@echo "📦 Installing Backend dependencies..."
 	@unset PYTHONPATH && unset PYTHONHOME && $(PIP) install --upgrade pip
