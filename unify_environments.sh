@@ -4,7 +4,7 @@
 
 CURRENT_DIR=$(pwd)
 BASE_DIR=$(dirname "$CURRENT_DIR")
-EXCLUDE="claude-code-source-code novel_agent"
+EXCLUDE="claude-code-source-code"
 
 echo "🚀 启动 .venv 物理大一统行动..."
 echo "📍 目标根目录: $BASE_DIR"

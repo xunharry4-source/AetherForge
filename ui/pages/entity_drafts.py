@@ -9,23 +9,14 @@ from src.common.lore_utils import get_draft_entities, approve_draft_entity, batc
 from ui.layout import page_layout
 
 def _reject_draft_entity(name: str):
-    """Directly reject a single entity by name (mirrors app_api.py logic)"""
-    if not os.path.exists(get_db_path("entity_drafts_db.json")): return False
-    all_drafts = []
-    found = False
-    with open(get_db_path("entity_drafts_db.json"), 'r', encoding='utf-8') as f:
-        for line in f:
-            if not line.strip(): continue
-            d = json.loads(line)
-            if not found and d.get('name') == name and d.get('status') == 'pending':
-                d['status'] = 'rejected'
-                found = True
-            all_drafts.append(d)
-    if found:
-        with open(get_db_path("entity_drafts_db.json"), 'w', encoding='utf-8') as f:
-            for d in all_drafts:
-                f.write(json.dumps(d, ensure_ascii=False) + "\n")
-    return found
+    """通过 lore_utils 物理拒绝草案 (MongoDB)"""
+    try:
+        from src.common.lore_utils import batch_reject_draft_entities
+        result = batch_reject_draft_entities([name])
+        return result['success'] > 0
+    except Exception as e:
+        print(f"Reject error: {e}")
+        return False
 
 @ui.page('/drafts')
 def entity_drafts_page():

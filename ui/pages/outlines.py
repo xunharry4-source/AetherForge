@@ -281,22 +281,17 @@ async def outlines_page():
 
     async def do_delete(dialog, doc_id):
         try:
-            # Reusing the existing deletion logic in lore_db if possible, or direct implement
-            # For simplicity, direct delete here
-            db_path = get_db_path('outlines_db.json')
-            remaining = []
-            with open(db_path, 'r', encoding='utf-8') as f:
-                for line in f:
-                    if not line.strip(): continue
-                    item = json.loads(line)
-                    curr_id = item.get('id') or item.get('outline_id')
-                    if str(curr_id) != str(doc_id):
-                        remaining.append(line)
-            with open(db_path, 'w', encoding='utf-8') as f:
-                f.writelines(remaining)
-            
-            ui.notify('大纲已移除', type='warning')
-            dialog.close()
-            ui.navigate.to('/outlines')
+            async with httpx.AsyncClient() as client:
+                res = await client.request('DELETE', f'{FLASK_API}/api/archive/delete', json={
+                    'id': doc_id, 
+                    'type': 'outline'
+                }, timeout=10)
+                
+                if res.status_code == 200:
+                    ui.notify('大纲及相关索引已物理移除', type='warning')
+                    dialog.close()
+                    ui.navigate.to('/outlines')
+                else:
+                    ui.notify(f'删除失败: {res.text}', type='negative')
         except Exception as e:
-            ui.notify(f'删除失败: {e}', type='negative')
+            ui.notify(f'删除异常: {e}', type='negative')

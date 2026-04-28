@@ -193,24 +193,19 @@ async def chapters_page():
 
     async def do_delete(dialog, doc_id):
         try:
-            db_path = get_db_path('prose_db.json', outline_id=state['outline_id'], worldview_id=state.get('worldview_id'))
-            remaining = []
-            if os.path.exists(db_path):
-                with open(db_path, 'r', encoding='utf-8') as f:
-                    for line in f:
-                        if not line.strip(): continue
-                        entry = json.loads(line)
-                        entry_id = entry.get('prose_id') or entry.get('id')
-                        if str(entry_id) != str(doc_id):
-                            remaining.append(entry)
-                with open(db_path, 'w', encoding='utf-8') as f:
-                    for entry in remaining:
-                        f.write(json.dumps(entry, ensure_ascii=False) + '\n')
+            async with httpx.AsyncClient() as client:
+                res = await client.request('DELETE', f'{FLASK_API}/api/archive/delete', json={
+                    'id': doc_id, 
+                    'type': 'prose',
+                    'outline_id': state['outline_id'],
+                    'worldview_id': state.get('worldview_id')
+                }, timeout=10)
                 
-                ui.notify('内容已移除', type='warning')
-                dialog.close()
-                await refresh_list(state['outline_id'])
-            else:
-                ui.notify('数据库文件不存在', type='negative')
+                if res.status_code == 200:
+                    ui.notify('章节正文已物理移除', type='warning')
+                    dialog.close()
+                    await refresh_list(state['outline_id'])
+                else:
+                    ui.notify(f'移除失败: {res.text}', type='negative')
         except Exception as e:
-            ui.notify(f'移除失败: {e}', type='negative')
+            ui.notify(f'移除异常: {e}', type='negative')

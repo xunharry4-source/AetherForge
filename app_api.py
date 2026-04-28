@@ -489,6 +489,7 @@ def update_archive():
             'worldview': 'lore',
             'outline': 'outlines',
             'prose': 'prose',
+            'novel': 'novels',
             'entity-draft': 'entity_drafts'
         }
         coll_name = collection_map.get(str(item_type))
@@ -531,63 +532,64 @@ def update_archive():
 
 @app.route('/api/archive/delete', methods=['DELETE'])
 def delete_archive():
-    """从数据库中永久删除条目。"""
+    """从 MongoDB 数据库中永久删除条目，并同步清理向量索引。"""
     data = request.json or {}
+    logger.info(f"[API] Delete request received: {data}")
     item_id = data.get('id')
     item_type = data.get('type')
     outline_id = data.get('outline_id')
     worldview_id = data.get('worldview_id')
     
     if not item_id or not item_type:
+        logger.warning(f"[API] Delete 400: Missing id({item_id}) or type({item_type})")
         return jsonify({"error": "Missing id or type"}), 400
         
-    filename = {
-        'worldview': get_db_path("worldview_db.json", outline_id=outline_id, worldview_id=worldview_id),
-        'outline': get_db_path("outlines_db.json"),
-        'prose': get_db_path("prose_db.json", outline_id=outline_id, worldview_id=worldview_id),
-        'entity-draft': get_db_path("entity_drafts_db.json", outline_id=outline_id, worldview_id=worldview_id),
-    }.get(str(item_type))
-    
-    if not filename or not os.path.exists(filename):
-        return jsonify({"error": f"Invalid type or file not found: {item_type}"}), 400
-        
-    updated = False
-    new_lines = []
-    
     try:
-        with open(filename, 'r', encoding='utf-8') as f:
-            for line in f:
-                if not line.strip(): continue
-                try:
-                    item = json.loads(line)
-                    curr_id = item.get('doc_id') or item.get('scene_id') or item.get('id') or item.get('outline_id')
-                    
-                    if str(curr_id) == str(item_id):
-                        updated = True
-                        continue  # Skip this line to delete
-                    
-                    if not line.endswith('\n'): line += '\n'
-                    new_lines.append(line)
-                except Exception as e:
-                    logger.warning(f"Failed to parse line during delete: {e}")
-                    if not line.endswith('\n'): line += '\n'
-                    new_lines.append(line)
+        db = get_mongodb_db()
+        collection_map = {
+            'worldview': 'lore',
+            'outline': 'outlines',
+            'prose': 'prose',
+            'novel': 'novels',
+            'entity-draft': 'entity_drafts'
+        }
+        coll_name = collection_map.get(str(item_type))
+        if not coll_name:
+            return jsonify({"error": f"Invalid type: {item_type}"}), 400
+            
+        coll = db[coll_name]
         
-        if updated:
-            with open(filename, 'w', encoding='utf-8') as f:
-                f.writelines(new_lines)
-            
-            # 同步删除向量索引
+        # 构造多键名兼容的查询
+        query = {
+            "$or": [
+                {"id": item_id},
+                {"doc_id": item_id},
+                {"scene_id": item_id},
+                {"outline_id": item_id}
+            ]
+        }
+        
+        # 1. 物理执行 MongoDB 删除
+        res = coll.delete_one(query)
+        
+        if res.deleted_count > 0:
+            # 2. 同步清理向量库 (ChromaDB)
             try:
+                # 某些类型可能没有向量索引，静默处理
                 delete_lore_vector(item_id, outline_id=outline_id, worldview_id=worldview_id)
-            except Exception as e:
-                print(f"[API] Vector delete error: {e}")
-            
-            return jsonify({"status": "success", "message": f"Item {item_id} deleted"})
+            except Exception as ve:
+                logger.warning(f"Vector delete skipped or failed: {ve}")
+                
+            return jsonify({
+                "status": "success", 
+                "message": f"Item {item_id} of type {item_type} deleted from {coll_name}",
+                "deleted_count": res.deleted_count
+            })
         else:
-            return jsonify({"error": f"Item {item_id} not found"}), 404
+            return jsonify({"error": f"Item {item_id} not found in {coll_name}"}), 404
             
     except Exception as e:
+        logger.error(f"Deletion failed: {e}")
         return jsonify({"error": f"Deletion failed: {e}"}), 500
 
 

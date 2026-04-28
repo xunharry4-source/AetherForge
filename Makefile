@@ -1,6 +1,6 @@
 PYTHON = ./.venv/bin/python
-PIP = ./.venv/bin/pip
-SYSTEM_PYTHON = /opt/homebrew/opt/python@3.12/bin/python3.12
+PIP = $(PYTHON) -m pip
+SYSTEM_PYTHON = python3.12
 FRONTEND_DIR = frontend
 UI_DIR = ui
 
@@ -17,6 +17,10 @@ help:
 
 install:
 	@echo "📦 Creating virtual environment (.venv) using $(SYSTEM_PYTHON)..."
+	@if [ -d ".venv" ] && { [ ! -x "$(PYTHON)" ] || ! (unset PYTHONPATH; unset PYTHONHOME; $(PYTHON) -c 'import sys; raise SystemExit(sys.version_info[:2] != (3, 12))'); }; then \
+		echo "⚠️ Existing .venv is invalid or not Python 3.12; rebuilding..."; \
+		rm -rf .venv; \
+	fi
 	@if [ ! -d ".venv" ]; then \
 		unset PYTHONPATH && unset PYTHONHOME && $(SYSTEM_PYTHON) -m venv .venv; \
 	fi
