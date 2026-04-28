@@ -27,3 +27,17 @@
 ## 3. Core Architectures
 - **0-4 Architecture**: All Agent outputs must adhere to the 0-4 structured logic defined in `info.md`.
 - **Logic Closure**: "Audit-Reject-Rewrite" loops are mandatory for all content generation.
+
+## 4. Bug Handling: Root Cause First（根因优先，全项目）
+
+处理 bug 时，**默认目标是根因分析**，不是快速补救。必须先定位真实原因并给出**证据链**（触发路径、状态/数据流、失败点文件与函数），再实施修复。
+
+在**未确认根因**前，禁止用 fallback、前端补救、自动触发、仅靠提示文案或体验优化等方式**绕开**问题，除非你明确要求**临时 workaround**。
+
+若未完成验证，必须写明 **「未验证」**；不得把推测说成事实。
+
+**每次修复前**简要说明：问题是什么、为什么发生、为何本改动针对根因而非表象。
+
+**每次修复后**说明：已验证什么、未验证什么、剩余风险是什么。
+
+详细条目与 Cursor 规则文件同步：`.cursor/rules/bug-root-cause.mdc`（`alwaysApply: true`）。

@@ -150,7 +150,7 @@ docker-compose up -d
 **启动前端 UI 界面：**
 打开一个新的终端窗口：
 ```bash
-/usr/bin/python3 -m streamlit run ui/main.py
+/usr/bin/python3 ui/main.py
 ```
 *   **职责**: 提供直观的多小说并行创作工作室、大纲编辑器及设定浏览器。
 *   **服务地址**: `http://localhost:8501` (启动后会自动在浏览器中弹启)

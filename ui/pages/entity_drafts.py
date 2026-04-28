@@ -5,7 +5,7 @@ import sys
 
 # Ensure backend imports work
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from lore_utils import get_draft_entities, approve_draft_entity, batch_approve_draft_entities, batch_reject_draft_entities, get_db_path
+from src.common.lore_utils import get_draft_entities, approve_draft_entity, batch_approve_draft_entities, batch_reject_draft_entities, get_db_path
 from ui.layout import page_layout
 
 def _reject_draft_entity(name: str):

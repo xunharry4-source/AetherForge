@@ -1,0 +1,9 @@
+[
+  {
+    "worldview_id": "default_wv",
+    "name": "默认世界观 (Default)",
+    "summary": "包含所有迁移自旧版本系统的项目。",
+    "created_at": "2026-03-28T03:30:00Z"
+  }
+]
+{"worldview_id": "wv_test_nebula", "name": "Nebula Verified Universe", "summary": "E2E Test Universe", "timestamp": "2026-03-28 12:00:00"}

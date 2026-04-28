@@ -7,6 +7,13 @@ description: Capabilities for monitoring, error tracking, and LLM tracing using 
 
 This skill allows the agent to monitor system health, track errors, and trace LLM calls.
 
+## 🧪 Testing Philosophy (测试原则)
+
+> [!IMPORTANT]
+> **测试的目的是找出系统的错误与问题，并且是尽可能发现系统的漏洞与可能的存在的缺陷，不是为了逃避错误与问题。**
+> **文档先行 (Documentation First)**: 任何可观测性组件的变更或新功能页面，必须先在 `technical_design.md` 中完成影响分析与分解，方可实施。
+> (The goal of testing is to proactively find errors and vulnerabilities, not to avoid them.)
+
 ## Monitoring Stack
 
 ### 🚨 Sentry (Error Tracking)

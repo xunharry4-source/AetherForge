@@ -1,4 +1,4 @@
-from nicegui import ui
+from nicegui import ui, app
 import json
 import os
 import sys
@@ -6,7 +6,7 @@ import httpx
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app_api import get_all_lore_items
-from lore_utils import get_db_path
+from src.common.lore_utils import get_db_path
 from ui.layout import page_layout
 
 FLASK_API = 'http://localhost:5005'
@@ -72,6 +72,9 @@ def _find_doc_by_id(docs, doc_id):
 
 @ui.page('/lore')
 async def lore_db_page():
+    # Add D3.js to the head for this page
+    ui.add_head_html('<script src="https://d3js.org/d3.v7.min.js"></script>')
+
     # 状态
     worldviews = await _get_worldviews()
     wv_options = {wv['worldview_id']: wv['name'] for wv in worldviews}
@@ -203,24 +206,117 @@ async def lore_db_page():
             # --- Tab 2: Entity Graph ---
             with ui.tab_panel(tab_graph).classes('p-0'):
                 with ui.column().classes('w-full h-[650px] bg-black/40 rounded-lg border border-slate-800 relative'):
-                    graph_html = ui.html('').classes('w-full h-full')
+                    graph_id = 'd3-graph-container'
+                    graph_html = ui.html(f'<div id="{graph_id}" style="width:100%; height:100%;"></div>', sanitize=False).classes('w-full h-full')
                     
-                    def refresh_graph():
+                    async def refresh_graph():
                         wv_id = state['current_wv']
-                        graph_html.content = f"""
-                        <div style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:#64748b;">
-                            <i class="material-icons" style="font-size:48px; margin-bottom:16px;">hub</i>
-                            <p>正在生成世界观「{wv_id}」的关联图谱...</p>
-                            <small style="margin-top:8px;">(预览模式 - 动态图谱加载中)</small>
-                        </div>
-                        """
+                        graph_html.content = f'<div id="{graph_id}" style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; color:#64748b;"><p>图谱加载中...</p></div>'
+                        
+                        try:
+                            async with httpx.AsyncClient() as client:
+                                res = await client.get(f'{FLASK_API}/api/lore/entity-graph/all?worldview_id={wv_id}', timeout=10)
+                                if res.status_code == 200:
+                                    data = res.json()
+                                    if not data['nodes']:
+                                        graph_html.content = '<div class="flex items-center justify-center h-full text-slate-500">暂无关联数据</div>'
+                                        return
+                                    
+                                    # Inject D3 rendering script
+                                    js_code = f"""
+                                    (function() {{
+                                        const container = document.getElementById('{graph_id}');
+                                        container.innerHTML = '';
+                                        const width = container.clientWidth;
+                                        const height = container.clientHeight;
+                                        const data = {json.dumps(data)};
+
+                                        const svg = d3.select(container).append('svg')
+                                            .attr('width', width)
+                                            .attr('height', height)
+                                            .call(d3.zoom().on('zoom', (event) => g.attr('transform', event.transform)))
+                                            .append('g');
+                                        
+                                        const g = svg.append('g');
+
+                                        const simulation = d3.forceSimulation(data.nodes)
+                                            .force('link', d3.forceLink(data.links).id(d => d.id).distance(100))
+                                            .force('charge', d3.forceManyBody().strength(-200))
+                                            .force('center', d3.forceCenter(width / 2, height / 2));
+
+                                        const link = g.append('g')
+                                            .attr('stroke', '#475569')
+                                            .attr('stroke-opacity', 0.6)
+                                            .selectAll('line')
+                                            .data(data.links)
+                                            .join('line')
+                                            .attr('stroke-width', d => Math.sqrt(d.value || 1));
+
+                                        const node = g.append('g')
+                                            .selectAll('circle')
+                                            .data(data.nodes)
+                                            .join('circle')
+                                            .attr('r', d => d.val || 10)
+                                            .attr('fill', d => d.type === 'entity' ? '#6366f1' : '#14b8a6')
+                                            .call(d3.drag()
+                                                .on('start', dragstarted)
+                                                .on('drag', dragged)
+                                                .on('end', dragended));
+
+                                        node.append('title').text(d => d.name);
+
+                                        const label = g.append('g')
+                                            .selectAll('text')
+                                            .data(data.nodes)
+                                            .join('text')
+                                            .text(d => d.name)
+                                            .attr('font-size', '10px')
+                                            .attr('fill', '#cbd5e1')
+                                            .attr('dx', 12)
+                                            .attr('dy', 4);
+
+                                        simulation.on('tick', () => {{
+                                            link.attr('x1', d => d.source.x)
+                                                .attr('y1', d => d.source.y)
+                                                .attr('x2', d => d.target.x)
+                                                .attr('y2', d => d.target.y);
+
+                                            node.attr('cx', d => d.x)
+                                                .attr('cy', d => d.y);
+                                            
+                                            label.attr('x', d => d.x)
+                                                 .attr('y', d => d.y);
+                                        }});
+
+                                        function dragstarted(event) {{
+                                            if (!event.active) simulation.alphaTarget(0.3).restart();
+                                            event.subject.fx = event.subject.x;
+                                            event.subject.fys = event.subject.y;
+                                        }}
+                                        function dragged(event) {{
+                                            event.subject.fx = event.x;
+                                            event.subject.fy = event.y;
+                                        }}
+                                        function dragended(event) {{
+                                            if (!event.active) simulation.alphaTarget(0);
+                                            event.subject.fx = null;
+                                            event.subject.fy = null;
+                                        }}
+                                    }})();
+                                    """
+                                    ui.run_javascript(js_code)
+                                else:
+                                    graph_html.content = '<div class="flex items-center justify-center h-full text-red-400">API 错误</div>'
+                        except Exception as e:
+                            graph_html.content = f'<div class="flex items-center justify-center h-full text-red-500">加载失败: {str(e)}</div>'
+
                     wv_select.on_value_change(refresh_graph)
-                    refresh_graph()
+                    ui.timer(0.5, refresh_graph, once=True)
 
             # --- Tab 3: Mindmap ---
             with ui.tab_panel(tab_mindmap).classes('p-0'):
                 with ui.column().classes('w-full h-[650px] bg-black/40 rounded-lg border border-slate-800'):
-                    mm_html = ui.html('').classes('w-full h-full overflow-auto')
+                    mm_html = ui.html('', sanitize=False).classes('w-full h-full overflow-auto')
                     
                     async def refresh_mindmap():
                         wv_id = state['current_wv']

@@ -57,11 +57,24 @@ cd observability
 docker-compose up -d
 ```
 
-### 4. Run Main Service
+### 4. Start System Services
+
+To ensure permissions are handled correctly, it is recommended to start the backend and frontend separately using the system's pre-installed Python environment.
+
+**Start the Backend API Service:**
 ```bash
-python app_api.py
+/usr/bin/python3 app_api.py
 ```
-Access `http://127.0.0.1:5005` to open the Omni-Dashboard.
+*   **Role**: Provides underlying Agent logic, database management, and hierarchical RAG retrieval interfaces.
+*   **URL**: `http://localhost:5005`
+
+**Start the Frontend UI:**
+Open a new terminal window:
+```bash
+/usr/bin/python3 ui/main.py
+```
+*   **Role**: Provides the visual multi-novel creative workspace, outline editor, and lore browser.
+*   **URL**: `http://localhost:8501` (Opens automatically in browser)
 
 ---
 

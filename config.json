@@ -1,0 +1,22 @@
+{
+  "LLM_PROVIDER": "ollama",
+  "DEFAULT_MODEL": "gemma4:e2b",
+  "AUTONOMY_LEVEL": "balanced",
+  "DEFAULT_MODEL_MAP": {
+    "gemini": "gemma-4-31b-it",
+    "openai": "gpt-4-turbo-preview",
+    "ollama": "gemma4:e2b",
+    "local": "gemma4:e2b"
+  },
+  "AGENT_MODELS": {
+    "comment": "如果需要特定 Agent 使用不同模型，请在此配置。留空则使用 DEFAULT_MODEL",
+    "worldview": {},
+    "outline": {},
+    "writing": {}
+  },
+  "MONGO_URI": "mongodb://localhost:27017/",
+  "MONGO_DB_NAME": "pga_worldview",
+  "CHROMA_COLLECTION_NAME": "pga_worldview_v1",
+  "DB_PATH": "data",
+  "LOG_PATH": "logs"
+}

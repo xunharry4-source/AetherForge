@@ -5,7 +5,7 @@ import sys
 import httpx
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from lore_utils import get_all_templates, upsert_category_template, delete_category_template, add_new_category
+from src.common.lore_utils import get_all_templates, upsert_category_template, delete_category_template, add_new_category
 from ui.layout import page_layout
 
 FLASK_API = 'http://localhost:5005'
@@ -18,6 +18,17 @@ def _load_config():
         return {}
     with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
         return json.load(f)
+
+
+def _save_config(config):
+    """保存配置到 config.json。"""
+    try:
+        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
+            json.dump(config, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception as e:
+        print(f"Error saving config: {e}")
+        return False
 
 
 @ui.page('/settings')
@@ -162,7 +173,34 @@ def settings_page():
             # 初始加载
             refresh_templates()
 
-        # ========== 第二部分：系统配置（只读） ==========
+        # ========== 第二部分：AI 自主化设置 ==========
+        with ui.card().classes('w-full bg-slate-900 border border-slate-700 p-6 mt-6'):
+            ui.label('AI 自主化引擎控制 (Autonomy)').classes('text-lg font-bold text-white mb-2')
+            ui.label('调整 Agent 的决策边界：模式越“激进”，AI 绕过人工确认并自主存库的概率越高。').classes('text-slate-400 text-xs mb-6')
+
+            config = _load_config()
+            current_level = config.get("AUTONOMY_LEVEL", "balanced")
+            
+            with ui.row().classes('w-full items-center gap-8 mb-6'):
+                autonomy_radio = ui.radio(
+                    {'safe': '安全模式 (Safe)', 'balanced': '均衡模式 (Balanced)', 'aggressive': '激进模式 (Aggressive)'},
+                    value=current_level
+                ).props('inline color="cyan" dark').classes('text-slate-200')
+
+            def update_autonomy():
+                new_level = autonomy_radio.value
+                current_config = _load_config()
+                current_config["AUTONOMY_LEVEL"] = new_level
+                if _save_config(current_config):
+                    ui.notify(f'自主化等级已切换至: {new_level.upper()}', type='positive')
+                    # 提示手动重启后台或配置热重载
+                    ui.notify('配置已持久化，新的 Agent 请求将应用此设置。', type='info')
+                else:
+                    ui.notify('保存失败，请检查文件权限。', type='negative')
+
+            ui.button('应用并同步设置', on_click=update_autonomy).props('color="cyan" text-color="black" icon="sync"')
+
+        # ========== 第三部分：系统配置（详见） ==========
         with ui.card().classes('w-full bg-slate-900 border border-slate-700 p-6 mt-6'):
             ui.label('系统配置').classes('text-lg font-bold text-white mb-2')
             ui.label('当前 config.json 配置项（只读）。').classes('text-slate-400 text-xs mb-4')

@@ -80,7 +80,8 @@ def init_app():
     import ui.pages.outlines
     import ui.pages.chapters
     import ui.pages.settings
+    import ui.pages.brain
 
 if __name__ in {"__main__", "__mp_main__"}:
     init_app()
-    ui.run(port=8090, title='PGA Hybrid Admin', favicon='🌌')
+    ui.run(port=8501, host='localhost', title='PGA Hybrid Admin', favicon='🌌')

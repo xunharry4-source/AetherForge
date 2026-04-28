@@ -13,6 +13,7 @@ def create_sidebar():
         ui.label('导航菜单').classes('text-xs font-bold text-slate-500 mb-4 px-4')
         with ui.column().classes('w-full gap-1'):
             ui.link('实体草案审核', '/drafts').classes('w-full px-4 py-2 hover:bg-slate-800 rounded transition-colors text-slate-300 no-underline text-sm')
+            ui.link('万象大脑 (Brain)', '/brain').classes('w-full px-4 py-2 hover:bg-slate-800 rounded transition-colors text-purple-400 no-underline text-sm font-bold border-l-2 border-purple-500 shadow-sm shadow-purple-500/10')
             ui.link('世界观知识库', '/lore').classes('w-full px-4 py-2 hover:bg-slate-800 rounded transition-colors text-slate-300 no-underline text-sm')
             ui.link('小说大纲管理', '/outlines').classes('w-full px-4 py-2 hover:bg-slate-800 rounded transition-colors text-slate-300 no-underline text-sm')
             ui.link('章节创作管理', '/chapters').classes('w-full px-4 py-2 hover:bg-slate-800 rounded transition-colors text-slate-300 no-underline text-sm')

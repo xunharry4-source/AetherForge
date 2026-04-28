@@ -5,7 +5,15 @@ pymongo
 chromadb
 langchain
 langchain-openai
+langchain-google-genai
 langgraph
+nicegui
+httpx
+langchain-chroma
+google-generativeai
+pydantic
+requests
+
 
 # Observability Stack
 sentry-sdk[flask]

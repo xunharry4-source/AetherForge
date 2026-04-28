@@ -1,0 +1,16 @@
+{
+  "worldview": {
+    "calls": 1,
+    "input_tokens": 100,
+    "output_tokens": 50,
+    "total_tokens": 150,
+    "last_active": "2026-03-28 10:21:39"
+  },
+  "writing": {
+    "calls": 5,
+    "input_tokens": 1624,
+    "output_tokens": 3464,
+    "total_tokens": 5088,
+    "last_active": "2026-04-28 13:47:41"
+  }
+}

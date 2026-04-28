@@ -8,7 +8,7 @@ import datetime
 # Ensure backend imports work
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from app_api import get_all_lore_items
-from lore_utils import get_db_path
+from src.common.lore_utils import get_db_path
 from ui.layout import page_layout
 
 FLASK_API = 'http://localhost:5005'
