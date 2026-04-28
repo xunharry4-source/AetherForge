@@ -3,8 +3,6 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import hashlib
-import json
-import os
 import sys
 import time
 import xml.etree.ElementTree as ET
@@ -14,7 +12,6 @@ from typing import Any
 import chromadb
 import pymongo
 from langchain_chroma import Chroma
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from pymongo import UpdateOne
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -22,6 +19,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from src.common.config_utils import get_config
+from src.common.ollama_embeddings import OllamaEmbeddings
 
 
 def parse_opml(path: Path, worldview_id: str) -> list[dict[str, Any]]:
@@ -121,25 +119,31 @@ def upsert_mongo(records: list[dict[str, Any]], worldview_id: str, worldview_nam
     return int(result.upserted_count + result.modified_count + result.matched_count)
 
 
-def get_api_keys() -> list[str]:
-    config = get_config()
-    keys = config.get("GOOGLE_API_KEYS") or []
-    if not keys and config.get("GOOGLE_API_KEY"):
-        keys = [config["GOOGLE_API_KEY"]]
-    return [key for key in keys if key]
-
-
-def build_vector_store(worldview_id: str, api_key: str) -> Chroma:
+def get_chroma_collection_name(worldview_id: str) -> str:
     safe_id = worldview_id.replace("-", "_")
-    collection_name = f"pga_wv_{safe_id}"
+    return f"pga_wv_{safe_id}"
+
+
+def get_chroma_path() -> Path:
     chroma_path = ROOT / "src" / "common" / "chroma_db"
     chroma_path.mkdir(parents=True, exist_ok=True)
-    client = chromadb.PersistentClient(path=str(chroma_path))
-    embeddings = GoogleGenerativeAIEmbeddings(
-        model="models/gemini-embedding-001",
-        google_api_key=api_key,
-        task_type="retrieval_document",
-    )
+    return chroma_path
+
+
+def reset_chroma_collection(worldview_id: str) -> None:
+    client = chromadb.PersistentClient(path=str(get_chroma_path()))
+    collection_name = get_chroma_collection_name(worldview_id)
+    try:
+        client.delete_collection(collection_name)
+        print(f"[Chroma] reset collection {collection_name}")
+    except Exception:
+        print(f"[Chroma] collection {collection_name} did not exist")
+
+
+def build_vector_store(worldview_id: str, ollama_model: str, ollama_url: str) -> Chroma:
+    client = chromadb.PersistentClient(path=str(get_chroma_path()))
+    embeddings = OllamaEmbeddings(model=ollama_model, base_url=ollama_url)
+    collection_name = get_chroma_collection_name(worldview_id)
     return Chroma(client=client, collection_name=collection_name, embedding_function=embeddings)
 
 
@@ -161,13 +165,15 @@ def chroma_metadata(record: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def upsert_chroma(records: list[dict[str, Any]], worldview_id: str, batch_size: int, sleep_seconds: float) -> int:
-    keys = get_api_keys()
-    if not keys:
-        raise RuntimeError("GOOGLE_API_KEY/GOOGLE_API_KEYS is required for Chroma embeddings.")
-
-    key_index = 0
-    vector_store = build_vector_store(worldview_id, keys[key_index])
+def upsert_chroma(
+    records: list[dict[str, Any]],
+    worldview_id: str,
+    batch_size: int,
+    sleep_seconds: float,
+    ollama_model: str,
+    ollama_url: str,
+) -> int:
+    vector_store = build_vector_store(worldview_id, ollama_model, ollama_url)
     written = 0
 
     for start in range(0, len(records), batch_size):
@@ -176,28 +182,13 @@ def upsert_chroma(records: list[dict[str, Any]], worldview_id: str, batch_size: 
         texts = [record["content"] for record in batch]
         metadatas = [chroma_metadata(record) for record in batch]
 
-        while True:
-            try:
-                try:
-                    vector_store.delete(ids=ids)
-                except Exception:
-                    pass
-                vector_store.add_texts(texts=texts, metadatas=metadatas, ids=ids)
-                written += len(batch)
-                print(f"[Chroma] {written}/{len(records)} records written")
-                break
-            except Exception as exc:
-                message = str(exc).upper()
-                if any(token in message for token in ("429", "RESOURCE_EXHAUSTED", "QUOTA")) and len(keys) > 1:
-                    key_index = (key_index + 1) % len(keys)
-                    print(f"[Chroma] quota hit, rotating to key #{key_index + 1}")
-                    vector_store = build_vector_store(worldview_id, keys[key_index])
-                    continue
-                if any(token in message for token in ("429", "RESOURCE_EXHAUSTED", "QUOTA")):
-                    print("[Chroma] quota hit, sleeping before retry")
-                    time.sleep(max(30.0, sleep_seconds))
-                    continue
-                raise
+        try:
+            vector_store.delete(ids=ids)
+        except Exception:
+            pass
+        vector_store.add_texts(texts=texts, metadatas=metadatas, ids=ids)
+        written += len(batch)
+        print(f"[Chroma] {written}/{len(records)} records written")
 
         if sleep_seconds:
             time.sleep(sleep_seconds)
@@ -214,6 +205,9 @@ def main() -> None:
     parser.add_argument("--sleep", type=float, default=0.3)
     parser.add_argument("--skip-mongo", action="store_true")
     parser.add_argument("--skip-chroma", action="store_true")
+    parser.add_argument("--reset-chroma", action="store_true")
+    parser.add_argument("--ollama-model", default=None)
+    parser.add_argument("--ollama-url", default=None)
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
@@ -231,8 +225,13 @@ def main() -> None:
         print(f"[Mongo] upserted/matched {count} lore records in worldview_id={args.worldview_id}")
 
     if not args.skip_chroma:
-        count = upsert_chroma(records, args.worldview_id, args.batch_size, args.sleep)
-        print(f"[Chroma] upserted {count} vectors in collection pga_wv_{args.worldview_id.replace('-', '_')}")
+        config = get_config()
+        ollama_model = args.ollama_model or config.get("OLLAMA_EMBEDDING_MODEL") or "embeddinggemma"
+        ollama_url = args.ollama_url or config.get("OLLAMA_BASE_URL") or "http://localhost:11434/v1"
+        if args.reset_chroma:
+            reset_chroma_collection(args.worldview_id)
+        count = upsert_chroma(records, args.worldview_id, args.batch_size, args.sleep, ollama_model, ollama_url)
+        print(f"[Chroma] upserted {count} vectors in collection {get_chroma_collection_name(args.worldview_id)}")
 
 
 if __name__ == "__main__":

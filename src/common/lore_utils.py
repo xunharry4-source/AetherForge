@@ -20,11 +20,11 @@ import uuid
 from typing import Dict, List, Optional, Any, cast
 import time
 from chromadb.config import Settings
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_chroma import Chroma
 from .config_utils import load_config
 from .logger_utils import get_logger
 from .dify_sync_utils import get_dify_client
+from .ollama_embeddings import OllamaEmbeddings
 
 logger = get_logger("novel_agent.lore")
 try:
@@ -338,13 +338,6 @@ def sync_lore_to_db(entity: Dict[str, Any], outline_id: Optional[str] = None, wo
     # 3. 同步至 ChromaDB (父子结构)
     try:
         config = load_config()
-        key = config.get("GOOGLE_API_KEY") or (config.get("GOOGLE_API_KEYS")[0] if config.get("GOOGLE_API_KEYS") else None)
-            
-        embeddings = GoogleGenerativeAIEmbeddings(
-            model="models/gemini-embedding-001", 
-            google_api_key=key,
-            task_type="retrieval_document"
-        )
         
         # Use worldview_id for vector database isolation
         v_store = get_vector_store(worldview_id=(worldview_id or "default_wv"), outline_id=outline_id)
@@ -501,6 +494,68 @@ def parse_json_safely(text: str) -> Any:
 # Cache for vector stores per novel
 _vector_store_cache = {}
 
+def _embedding_model_config(config: Dict[str, Any], provider: str) -> Dict[str, Any]:
+    catalog = config.get("EMBEDDING_MODELS") or {}
+    provider_config = catalog.get(provider) or {}
+    if isinstance(provider_config, str):
+        provider_config = {"default": provider_config, "models": [provider_config]}
+    elif isinstance(provider_config, list):
+        provider_config = {"default": provider_config[0] if provider_config else None, "models": provider_config}
+
+    default_model = provider_config.get("default")
+    if not default_model:
+        if provider == "ollama":
+            default_model = (
+                config.get("DEFAULT_EMBEDDING_MODEL")
+                or config.get("OLLAMA_EMBEDDING_MODEL")
+                or "embeddinggemma"
+            )
+        elif provider in {"gemini", "google"}:
+            default_model = "models/gemini-embedding-001"
+
+    models = provider_config.get("models") or ([default_model] if default_model else [])
+    normalized = {**provider_config, "default": default_model, "models": models}
+    if provider == "ollama":
+        normalized["base_url"] = normalized.get("base_url") or config.get("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+    return normalized
+
+def get_embedding_function(task_type: str = "retrieval_query"):
+    config = load_config()
+    provider = (config.get("EMBEDDING_PROVIDER") or "ollama").lower()
+    provider_config = _embedding_model_config(config, provider)
+    model_name = provider_config.get("default")
+
+    if provider == "ollama":
+        return OllamaEmbeddings(
+            model=model_name,
+            base_url=provider_config.get("base_url"),
+        )
+
+    if provider in {"gemini", "google"}:
+        from langchain_google_genai import GoogleGenerativeAIEmbeddings
+
+        key = _key_manager.get_key()
+        if not key:
+            raise ValueError("GOOGLE_API_KEY missing for embeddings.")
+        return GoogleGenerativeAIEmbeddings(
+            model=model_name,
+            google_api_key=key,
+            task_type=task_type,
+        )
+
+    raise ValueError(f"Unsupported EMBEDDING_PROVIDER: {provider}")
+
+def get_embedding_provider_info() -> Dict[str, Any]:
+    config = load_config()
+    provider = (config.get("EMBEDDING_PROVIDER") or "ollama").lower()
+    provider_config = _embedding_model_config(config, provider)
+    return {
+        "provider": provider,
+        "model": provider_config.get("default"),
+        "default_model": config.get("DEFAULT_EMBEDDING_MODEL") or provider_config.get("default"),
+        "embedding_models": config.get("EMBEDDING_MODELS", {}),
+    }
+
 def get_vector_store(worldview_id: str = "default_wv", outline_id: Optional[str] = None):
     """
     获取向量数据库实例。支持层级化隔离。
@@ -520,15 +575,7 @@ def get_vector_store(worldview_id: str = "default_wv", outline_id: Optional[str]
     if collection_name in _vector_store_cache:
         return _vector_store_cache[collection_name]
         
-    key = _key_manager.get_key()
-    if not key:
-        raise ValueError("GOOGLE_API_KEY missing for embeddings.")
-    
-    emb = GoogleGenerativeAIEmbeddings(
-        model="models/gemini-embedding-001", 
-        google_api_key=key, 
-        task_type="retrieval_query"
-    )
+    emb = get_embedding_function(task_type="retrieval_query")
     
     # Persistent storage for Chroma
     base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -1164,26 +1211,16 @@ def sync_archive_to_all_stores(item_id: str, item_type: str, content: str, name:
             # 由于 LangChain Chroma 封装的原因，直接按 metadata 删除比较慢
             # 如果我们在存储时将 doc_id 设置为 Chroma ID，则可以直接 update
             
-            # 获取 embedding 函数 (Google text-embedding-004)
-            emb = vector_store.embeddings
-            
-            # 使用原生 client 进行操作以获得更好控制
-            client = chromadb.PersistentClient(path="./chroma_db")
-            collection = client.get_collection(get_lore_collection_name())
-            
             # 尝试删除旧记录 (如果存在)
             # 注意：item_id 必须与存储时的 ID 一致
             try:
-                collection.delete(ids=[item_id])
+                vector_store.delete(ids=[item_id])
             except Exception as e:
                 logger.warning(f"Failed to delete old vector for {item_id}: {e}")
-            
-            # 生成新 embedding 并插入 (显式调用 embedding 函数提取 3072 维度的高维向量)
-            content_embeddings = emb.embed_documents([content])
-            collection.add(
+
+            vector_store.add_texts(
+                texts=[content],
                 ids=[item_id],
-                embeddings=content_embeddings,
-                documents=[content],
                 metadatas=[{"name": name or "未命名", "type": item_type, "doc_id": item_id, "timestamp": datetime.datetime.now().isoformat()}]
             )
             print(f"[lore_utils] ChromaDB sync success for {item_id}")

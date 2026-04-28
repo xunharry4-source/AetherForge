@@ -1,6 +1,10 @@
 {
   "LLM_PROVIDER": "ollama",
   "DEFAULT_MODEL": "gemma4:e2b",
+  "EMBEDDING_PROVIDER": "ollama",
+  "DEFAULT_EMBEDDING_MODEL": "embeddinggemma",
+  "OLLAMA_BASE_URL": "http://localhost:11434/v1",
+  "OLLAMA_EMBEDDING_MODEL": "embeddinggemma",
   "AUTONOMY_LEVEL": "balanced",
   "DEFAULT_MODEL_MAP": {
     "gemini": "gemma-4-31b-it",
