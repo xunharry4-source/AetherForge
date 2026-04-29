@@ -94,6 +94,15 @@ type HumanMode = 'delete-outline' | 'delete-chapter';
 const toOptions = <T extends Record<string, string>>(items: T[], valueKey: keyof T, labelKey: keyof T) =>
   items.map((item) => ({ value: String(item[valueKey]), label: String(item[labelKey]) }));
 
+const uniqueWorldsById = (items: World[]): World[] => {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (!item.world_id || seen.has(item.world_id)) return false;
+    seen.add(item.world_id);
+    return true;
+  });
+};
+
 export const OutlineChapterWorkflow: React.FC = () => {
   const navigate = useNavigate();
   const [worlds, setWorlds] = useState<World[]>([]);
@@ -142,7 +151,7 @@ export const OutlineChapterWorkflow: React.FC = () => {
     setError(null);
     try {
       const response = await api.listWorlds();
-      const nextWorlds = response.data as World[];
+      const nextWorlds = uniqueWorldsById((response.data as World[]) || []);
       setWorlds(nextWorlds);
       if (nextWorlds.length > 0) {
         setSelectedWorldId((current) => current || nextWorlds[0].world_id);

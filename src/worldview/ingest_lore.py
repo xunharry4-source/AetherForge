@@ -26,8 +26,17 @@ print(
 )
 
 # DB Connection
-print("[DEBUG] Connecting to ChromaDB at ./chroma_db...", flush=True)
-chroma_client = chromadb.PersistentClient(path="./chroma_db")
+db_base = CONFIG.get("DB_PATH", "data")
+if not os.path.isabs(db_base):
+    from src.common.config_utils import BASE_DIR
+    db_root = os.path.join(BASE_DIR, db_base)
+else:
+    db_root = db_base
+
+chroma_path = os.path.join(db_root, "chroma_db")
+os.makedirs(chroma_path, exist_ok=True)
+print(f"[DEBUG] Connecting to ChromaDB at {chroma_path}...", flush=True)
+chroma_client = chromadb.PersistentClient(path=chroma_path)
 print("[DEBUG] ChromaDB Connected.", flush=True)
 
 def get_opml_chunks(file_path):
@@ -128,7 +137,17 @@ def ingest(opml_path):
     def init_vector_store():
         embeddings = get_embedding_function(task_type="retrieval_document")
         import chromadb
-        client = chromadb.PersistentClient(path="./chroma_db")
+        # Use same path calculation as above
+        db_base = CONFIG.get("DB_PATH", "data")
+        if not os.path.isabs(db_base):
+            from src.common.config_utils import BASE_DIR
+            db_root = os.path.join(BASE_DIR, db_base)
+        else:
+            db_root = db_base
+        chroma_path = os.path.join(db_root, "chroma_db")
+        os.makedirs(chroma_path, exist_ok=True)
+        
+        client = chromadb.PersistentClient(path=chroma_path)
         return Chroma(
             client=client, 
             collection_name="pga_lore", 
@@ -143,9 +162,11 @@ def ingest(opml_path):
         raise e
 
     # 4. Handle resuming from previous state
+    from src.common.lore_utils import get_db_path
+    wv_db_path = get_db_path("worldview_db.json")
     indexed_paths = set()
-    if os.path.exists("worldview_db.json"):
-        with open("worldview_db.json", "r", encoding="utf-8") as f:
+    if os.path.exists(wv_db_path):
+        with open(wv_db_path, "r", encoding="utf-8") as f:
             for line in f:
                 try:
                     data = json.loads(line)
@@ -197,7 +218,7 @@ def ingest(opml_path):
                     time.sleep(5)
         
         if success:
-            with open("worldview_db.json", "a", encoding="utf-8") as f:
+            with open(wv_db_path, "a", encoding="utf-8") as f:
                 f.write(json.dumps(chunk, ensure_ascii=False) + "\n")
             
             count += 1

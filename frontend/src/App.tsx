@@ -3,8 +3,13 @@ import { MainLayout } from './layout/MainLayout';
 import { LoreDB } from './pages/LoreDB';
 import { WorldviewVisualizer } from './pages/WorldviewVisualizer';
 import { WorldHierarchy } from './pages/WorldHierarchy';
+import { WorldDetail } from './pages/WorldDetail';
 import { WorldviewManagement } from './pages/WorldviewManagement';
-import { OutlineChapterWorkflow } from './pages/OutlineChapterWorkflow';
+import { NovelManagement } from './pages/NovelManagement';
+import { NovelCreate } from './pages/NovelCreate';
+import { NovelDetail } from './pages/NovelDetail';
+import { NovelOutlineManagement } from './pages/NovelOutlineManagement';
+import { NovelChapterManagement } from './pages/NovelChapterManagement';
 import {
   ChapterWorkflow,
   HierarchyWorkflow,
@@ -24,10 +29,15 @@ function App() {
           <Route path="/" element={<MainLayout />}>
             <Route index element={<Navigate to="/worlds" replace />} />
             <Route path="worlds" element={<WorldHierarchy />} />
+            <Route path="worlds/:worldId" element={<WorldDetail />} />
             <Route path="worldviews" element={<WorldviewManagement />} />
             <Route path="lore" element={<LoreDB />} />
             <Route path="visualizer" element={<WorldviewVisualizer />} />
-            <Route path="novels" element={<OutlineChapterWorkflow />} />
+            <Route path="novels" element={<NovelManagement />} />
+            <Route path="novels/new" element={<NovelCreate />} />
+            <Route path="novels/:novelId/outlines" element={<NovelOutlineManagement />} />
+            <Route path="novels/:novelId/chapters" element={<NovelChapterManagement />} />
+            <Route path="novels/:novelId" element={<NovelDetail />} />
             <Route path="workflow" element={<HierarchyWorkflow />} />
             <Route path="workflow/world" element={<WorldWorkflow />} />
             <Route path="workflow/worldview" element={<WorldviewWorkflow />} />

@@ -56,7 +56,7 @@ start:
 	@$(MAKE) check-ports PORTS="$(BACKEND_PORT) $(FRONTEND_PORT)"
 	@echo "🚀 Starting API and React frontend in foreground (Press Ctrl+C to stop)..."
 	@/bin/bash -c "EXIT_HANDLED=0; trap 'if [ \$$EXIT_HANDLED -eq 0 ]; then echo -e \"\n🛑 Stopping services...\"; EXIT_HANDLED=1; kill 0; fi' SIGINT SIGTERM EXIT; \
-		env PYTHONPATH=.:src:src/common $(PYTHON) app_api.py 2>&1 | tee logs/backend.log & echo \$$! > $(CURDIR)/.backend.pid; \
+		env PYTHONPATH=.:src $(PYTHON) src/app_api.py 2>&1 | tee logs/backend.log & echo \$$! > $(CURDIR)/.backend.pid; \
 		if [ -f \"$(FRONTEND_DIR)/package.json\" ]; then \
 			cd $(FRONTEND_DIR) && npm run dev -- --host $(FRONTEND_HOST) --port $(FRONTEND_PORT) --strictPort 2>&1 | tee ../logs/frontend.log & echo \$$! > $(CURDIR)/.frontend.pid; \
 		fi; \
@@ -67,8 +67,8 @@ start-all:
 	@$(MAKE) check-ports PORTS="$(BACKEND_PORT) $(FRONTEND_PORT) $(LEGACY_UI_PORT)"
 	@echo "🚀 Starting API, legacy NiceGUI UI, and React frontend in foreground (Press Ctrl+C to stop)..."
 	@/bin/bash -c "EXIT_HANDLED=0; trap 'if [ \$$EXIT_HANDLED -eq 0 ]; then echo -e \"\n🛑 Stopping services...\"; EXIT_HANDLED=1; kill 0; fi' SIGINT SIGTERM EXIT; \
-		env PYTHONPATH=.:src:src/common $(PYTHON) app_api.py 2>&1 | tee logs/backend.log & echo \$$! > $(CURDIR)/.backend.pid; \
-		env PYTHONPATH=.:src:src/common $(PYTHON) $(UI_DIR)/main.py 2>&1 | tee logs/ui.log & echo \$$! > $(CURDIR)/.ui.pid; \
+		env PYTHONPATH=.:src $(PYTHON) src/app_api.py 2>&1 | tee logs/backend.log & echo \$$! > $(CURDIR)/.backend.pid; \
+		env PYTHONPATH=.:src $(PYTHON) $(UI_DIR)/main.py 2>&1 | tee logs/ui.log & echo \$$! > $(CURDIR)/.ui.pid; \
 		if [ -f \"$(FRONTEND_DIR)/package.json\" ]; then \
 			cd $(FRONTEND_DIR) && npm run dev -- --host $(FRONTEND_HOST) --port $(FRONTEND_PORT) --strictPort 2>&1 | tee ../logs/frontend.log & echo \$$! > $(CURDIR)/.frontend.pid; \
 		fi; \
@@ -83,10 +83,13 @@ start-legacy-ui:
 stop:
 	@echo "🛑 Stopping Backend..."
 	@if [ -f .backend.pid ]; then kill $$(cat .backend.pid) 2>/dev/null || true; rm .backend.pid; fi
+	@lsof -ti :$(BACKEND_PORT) | xargs kill -9 2>/dev/null || true
 	@echo "🛑 Stopping Admin UI..."
 	@if [ -f .ui.pid ]; then kill $$(cat .ui.pid) 2>/dev/null || true; rm .ui.pid; fi
+	@lsof -ti :$(LEGACY_UI_PORT) | xargs kill -9 2>/dev/null || true
 	@echo "🛑 Stopping Frontend..."
 	@if [ -f .frontend.pid ]; then kill $$(cat .frontend.pid) 2>/dev/null || true; rm .frontend.pid; fi
+	@lsof -ti :$(FRONTEND_PORT) | xargs kill -9 2>/dev/null || true
 	@echo "✅ All processes stopped."
 
 restart: stop start

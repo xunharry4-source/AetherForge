@@ -25,10 +25,13 @@ export const api = {
 
   listWorlds: () => apiClient.get('/api/worlds/list'),
 
-  createWorld: (data: { name: string; summary?: string }) =>
+  getWorld: (params: { world_id: string }) =>
+    apiClient.get('/api/worlds/get', { params }),
+
+  createWorld: (data: { name: string; summary?: string; forbidden_rules?: string[]; basic_settings?: Record<string, unknown> }) =>
     apiClient.post('/api/worlds/create', data),
 
-  updateWorld: (data: { world_id: string; name?: string; summary?: string }) =>
+  updateWorld: (data: { world_id: string; name?: string; summary?: string; forbidden_rules?: string[]; basic_settings?: Record<string, unknown> }) =>
     apiClient.post('/api/worlds/update', data),
 
   deleteWorld: (data: { world_id: string; cascade?: boolean }) =>
@@ -46,10 +49,13 @@ export const api = {
   listNovels: (params: { world_id?: string; novel_id?: string; query?: string; page: number; page_size: number }) =>
     apiClient.get('/api/novels/list', { params }),
 
-  createNovel: (data: { name: string; summary?: string; world_id: string }) =>
+  getNovel: (params: { novel_id: string }) =>
+    apiClient.get('/api/novels/get', { params }),
+
+  createNovel: (data: { name: string; introduction?: string; summary?: string; world_id: string; forbidden_rules?: string[]; basic_settings?: Record<string, unknown> }) =>
     apiClient.post('/api/novels/create', data),
 
-  updateNovel: (data: { novel_id: string; name?: string; summary?: string; world_id?: string }) =>
+  updateNovel: (data: { novel_id: string; name?: string; introduction?: string; summary?: string; world_id?: string; forbidden_rules?: string[]; basic_settings?: Record<string, unknown> }) =>
     apiClient.post('/api/novels/update', data),
 
   deleteNovel: (data: { novel_id: string; cascade?: boolean }) =>
@@ -80,7 +86,7 @@ export const api = {
   listHierarchyAgents: (params: { agent_type?: string; status?: string; run_id?: string; page: number; page_size: number }) =>
     apiClient.get('/api/hierarchy-agent/list', { params }),
 
-  listOutlines: (params: { world_id?: string; worldview_id?: string; novel_id?: string; outline_id?: string; query?: string; page: number; page_size: number }) =>
+  listOutlines: (params: { world_id?: string; worldview_id?: string; novel_id?: string; outline_id?: string; id?: string; query?: string; page: number; page_size: number }) =>
     apiClient.get('/api/outlines/list', { params }),
 
   createOutline: (data: { name: string; summary?: string; worldview_id?: string; novel_id?: string; world_id?: string }) =>

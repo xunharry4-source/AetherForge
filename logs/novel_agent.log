@@ -260,3 +260,153 @@
 2026-04-29 20:23:23,060 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
 2026-04-29 20:24:22,903 - novel_agent.api - INFO - sentry-sdk initialized successfully.
 2026-04-29 20:24:22,920 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 23:26:37,074 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:27:01,563 - novel_agent.llm_factory - ERROR - Error tracking usage for chapter_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:27:03,258 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_world_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:27:16,301 - novel_agent.llm_factory - ERROR - Error tracking usage for chapter_world_rules_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:27:16,537 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_worldview_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:27:30,299 - novel_agent.llm_factory - ERROR - Error tracking usage for chapter_worldview_rules_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:27:30,450 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_novel_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:27:42,420 - novel_agent.llm_factory - ERROR - Error tracking usage for chapter_novel_rules_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:27:42,589 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_outline_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:27:55,445 - novel_agent.llm_factory - ERROR - Error tracking usage for chapter_outline_rules_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:27:55,638 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_consistency_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:28:07,636 - novel_agent.llm_factory - ERROR - Error tracking usage for chapter_consistency_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:28:07,806 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'novel_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:28:41,824 - novel_agent.llm_factory - ERROR - Error tracking usage for novel_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:28:42,014 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'novel_world_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:28:59,607 - novel_agent.llm_factory - ERROR - Error tracking usage for novel_world_rules_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:28:59,833 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:29:35,302 - novel_agent.llm_factory - ERROR - Error tracking usage for outline_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:29:35,601 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_world_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:30:04,514 - novel_agent.llm_factory - ERROR - Error tracking usage for outline_world_rules_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:30:04,829 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_worldview_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:30:43,423 - novel_agent.llm_factory - ERROR - Error tracking usage for outline_worldview_rules_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:30:43,653 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_novel_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:31:16,979 - novel_agent.llm_factory - ERROR - Error tracking usage for outline_novel_rules_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:31:17,231 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'world_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:34:14,437 - novel_agent.llm_factory - ERROR - Error tracking usage for world_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:34:14,590 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'worldview_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:34:37,447 - novel_agent.llm_factory - ERROR - Error tracking usage for worldview_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:34:37,984 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'worldview_world_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:34:51,924 - novel_agent.llm_factory - ERROR - Error tracking usage for worldview_world_rules_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:34:52,149 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'worldview_consistency_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:35:06,320 - novel_agent.llm_factory - ERROR - Error tracking usage for worldview_consistency_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:35:06,920 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:35:37,025 - novel_agent.llm_factory - ERROR - Error tracking usage for chapter_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:35:37,314 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_world_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:36:00,392 - novel_agent.llm_factory - ERROR - Error tracking usage for chapter_world_rules_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:36:00,611 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_worldview_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:36:19,077 - novel_agent.llm_factory - ERROR - Error tracking usage for chapter_worldview_rules_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:36:19,489 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_novel_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:36:42,733 - novel_agent.llm_factory - ERROR - Error tracking usage for chapter_novel_rules_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:36:42,987 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_outline_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:37:03,830 - novel_agent.llm_factory - ERROR - Error tracking usage for chapter_outline_rules_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:37:04,052 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_consistency_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:37:22,383 - novel_agent.llm_factory - ERROR - Error tracking usage for chapter_consistency_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:37:22,612 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:37:56,065 - novel_agent.llm_factory - ERROR - Error tracking usage for outline_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:37:56,564 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_world_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:38:16,709 - novel_agent.llm_factory - ERROR - Error tracking usage for outline_world_rules_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:38:16,948 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_worldview_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:38:33,301 - novel_agent.llm_factory - ERROR - Error tracking usage for outline_worldview_rules_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:38:33,517 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_novel_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:38:57,176 - novel_agent.llm_factory - ERROR - Error tracking usage for outline_novel_rules_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:38:57,434 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:39:22,911 - novel_agent.llm_factory - ERROR - Error tracking usage for chapter_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:39:23,278 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_world_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:39:44,876 - novel_agent.llm_factory - ERROR - Error tracking usage for chapter_world_rules_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:39:45,178 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:40:17,968 - novel_agent.llm_factory - ERROR - Error tracking usage for outline_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:40:18,035 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_world_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:40:39,793 - novel_agent.llm_factory - ERROR - Error tracking usage for outline_world_rules_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:40:39,857 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_worldview_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:41:04,218 - novel_agent.llm_factory - ERROR - Error tracking usage for outline_worldview_rules_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:41:04,274 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_novel_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:41:30,020 - novel_agent.llm_factory - ERROR - Error tracking usage for outline_novel_rules_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:41:30,231 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:42:08,327 - novel_agent.llm_factory - ERROR - Error tracking usage for outline_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:42:08,423 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_world_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:42:31,003 - novel_agent.llm_factory - ERROR - Error tracking usage for outline_world_rules_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:42:31,067 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_worldview_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:42:52,921 - novel_agent.llm_factory - ERROR - Error tracking usage for outline_worldview_rules_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:42:52,984 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_novel_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:43:22,061 - novel_agent.llm_factory - ERROR - Error tracking usage for outline_novel_rules_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:43:38,854 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:44:16,873 - novel_agent.llm_factory - ERROR - Error tracking usage for chapter_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:44:16,951 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_world_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:44:37,640 - novel_agent.llm_factory - ERROR - Error tracking usage for chapter_world_rules_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:44:37,702 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_worldview_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:45:01,287 - novel_agent.llm_factory - ERROR - Error tracking usage for chapter_worldview_rules_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:45:01,344 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_novel_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:45:25,404 - novel_agent.llm_factory - ERROR - Error tracking usage for chapter_novel_rules_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:45:25,491 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_outline_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:45:47,070 - novel_agent.llm_factory - ERROR - Error tracking usage for chapter_outline_rules_review_agent: [Errno 2] No such file or directory: 'agent_usage.json'
+2026-04-29 23:45:47,131 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_consistency_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:49:14,642 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:49:42,278 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_world_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:49:57,379 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_worldview_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:50:13,598 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_novel_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:50:30,634 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_outline_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:50:46,509 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_consistency_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:51:26,204 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:51:59,322 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_world_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:52:21,167 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_worldview_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:52:42,013 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_novel_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:53:04,173 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_outline_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:53:30,919 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'novel_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:54:14,076 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'novel_world_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:54:43,764 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:55:22,507 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_world_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:55:44,687 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_worldview_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:56:07,468 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_novel_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:56:27,813 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'world_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:57:25,927 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'worldview_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:57:51,674 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'worldview_world_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:58:07,038 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'worldview_consistency_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:58:25,427 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:58:59,725 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_world_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:59:21,692 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_worldview_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 23:59:47,301 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_novel_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:00:11,040 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_outline_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:00:34,855 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_consistency_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:00:55,631 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:01:24,547 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_world_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:01:46,040 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_worldview_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:02:12,102 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_novel_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:02:32,670 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:03:12,373 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_world_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:03:36,819 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_worldview_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:04:05,016 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_novel_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:04:29,166 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_outline_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:04:50,364 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_consistency_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:05:21,072 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:05:49,250 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_world_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:06:06,642 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_worldview_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:06:26,096 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_novel_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:06:49,071 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:07:15,160 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_world_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:07:32,514 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_worldview_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:07:54,208 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_novel_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:09:46,970 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:10:20,955 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_world_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:10:40,155 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_worldview_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:11:01,649 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_novel_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:11:22,206 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_outline_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:11:42,250 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_consistency_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:12:23,921 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:12:51,211 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_world_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:13:08,291 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_worldview_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:13:24,645 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_novel_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:13:45,773 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_outline_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:14:04,817 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_consistency_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:14:24,251 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'novel_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 00:19:47,260 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'world_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 01:14:07,972 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'novel_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 01:14:36,458 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'novel_world_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 01:30:55,512 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'world_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 01:32:46,901 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'world_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 01:33:26,188 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'worldview_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 01:33:46,164 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'worldview_world_rules_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 01:34:03,068 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'worldview_consistency_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-30 01:34:54,118 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'worldview_agent' using model 'gemma4:e2b' (Provider: ollama)

@@ -49,6 +49,15 @@ interface World {
   summary?: string;
 }
 
+const uniqueWorldsById = (items: World[]): World[] => {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (!item.world_id || seen.has(item.world_id)) return false;
+    seen.add(item.world_id);
+    return true;
+  });
+};
+
 // --- Layout Helpers ---
 const DEFAULT_VISIBLE_DEPTH = 3;
 const FOCUS_RELATION_DEPTH = 3;
@@ -523,7 +532,7 @@ export const WorldviewVisualizer: React.FC = () => {
       if (!res.ok) {
         throw new Error(`HTTP ${res.status}: ${await res.text()}`);
       }
-      const data = await res.json();
+      const data = uniqueWorldsById(await res.json());
       setWorlds(data);
       if (data.length > 0) {
         setSelectedWorldId((current) => current || data[0].world_id);

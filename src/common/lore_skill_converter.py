@@ -1,9 +1,12 @@
 import json
 import os
 from datetime import datetime
+from .config_utils import BASE_DIR
+
+from .lore_utils import get_db_path
 
 def generate_modular_skills(current_chapter_idx=1):
-    db_path = "outlines_db.json"
+    db_path = get_db_path("outlines_db.json")
     if not os.path.exists(db_path):
         print("Error: outlines_db.json not found.")
         return
@@ -45,7 +48,8 @@ def generate_modular_skills(current_chapter_idx=1):
         active_content += f"- 第 {ch.get('chapter_num')} 章 ({ch.get('title')}): {ch.get('summary')} {status}\n"
 
     # 3. 生成 归档切片 (catalog/ARCHIVE/CH_XXX_XXX.md)
-    os.makedirs(".gemini/skills/catalog/ARCHIVE", exist_ok=True)
+    archive_dir = os.path.join(BASE_DIR, ".gemini", "skills", "catalog", "ARCHIVE")
+    os.makedirs(archive_dir, exist_ok=True)
     chunk_size = 50
     for i in range(0, len(catalog), chunk_size):
         chunk = catalog[i:i + chunk_size]
@@ -57,7 +61,7 @@ def generate_modular_skills(current_chapter_idx=1):
         for ch in chunk:
             archive_content += f"### 第 {ch.get('chapter_num')} 章: {ch.get('title')}\n- 梗概: {ch.get('summary')}\n- 重点: {ch.get('focus')}\n\n"
         
-        with open(f".gemini/skills/catalog/ARCHIVE/{archive_name}", "w", encoding="utf-8") as f:
+        with open(os.path.join(archive_dir, archive_name), "w", encoding="utf-8") as f:
             f.write(archive_content)
 
     # 4. 生成 主索引 (catalog/MASTER_INDEX.md)
@@ -68,14 +72,16 @@ def generate_modular_skills(current_chapter_idx=1):
         index_content += f"- [{f_name}](file://.gemini/skills/catalog/ARCHIVE/{f_name})\n"
     
     # 写入文件
-    os.makedirs(".gemini/skills/lore", exist_ok=True)
-    os.makedirs(".gemini/skills/framework", exist_ok=True)
+    lore_dir = os.path.join(BASE_DIR, ".gemini", "skills", "lore")
+    catalog_dir = os.path.join(BASE_DIR, ".gemini", "skills", "catalog")
+    os.makedirs(lore_dir, exist_ok=True)
+    os.makedirs(catalog_dir, exist_ok=True)
     
-    with open(".gemini/skills/lore/ANCHORS.md", "w", encoding="utf-8") as f:
+    with open(os.path.join(lore_dir, "ANCHORS.md"), "w", encoding="utf-8") as f:
         f.write(anchors_content)
-    with open(".gemini/skills/catalog/ACTIVE_WINDOW.md", "w", encoding="utf-8") as f:
+    with open(os.path.join(catalog_dir, "ACTIVE_WINDOW.md"), "w", encoding="utf-8") as f:
         f.write(active_content)
-    with open(".gemini/skills/catalog/MASTER_INDEX.md", "w", encoding="utf-8") as f:
+    with open(os.path.join(catalog_dir, "MASTER_INDEX.md"), "w", encoding="utf-8") as f:
         f.write(index_content)
     
     print(f"Success: Slicing completed for {meta.get('title')}. Active window set to Chapter {current_chapter_idx}.")

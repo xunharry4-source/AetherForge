@@ -21,7 +21,7 @@ from typing import Dict, List, Optional, Any, cast
 import time
 from chromadb.config import Settings
 from langchain_chroma import Chroma
-from .config_utils import load_config
+from .config_utils import load_config, BASE_DIR
 from .logger_utils import get_logger
 from .dify_sync_utils import get_dify_client
 from .ollama_embeddings import OllamaEmbeddings
@@ -73,9 +73,9 @@ def get_db_path(filename: str, outline_id: Optional[str] = None, worldview_id: O
     config = load_config()
     db_base = config.get("DB_PATH", "data")
     
-    # If it's a relative path, make it relative to the project root (CWD)
+    # If it's a relative path, make it relative to the project root (BASE_DIR)
     if not os.path.isabs(db_base):
-        base_dir = os.path.join(os.getcwd(), db_base)
+        base_dir = os.path.join(BASE_DIR, db_base)
     else:
         base_dir = db_base
     
@@ -433,7 +433,7 @@ def sync_lore_to_db(entity: Dict[str, Any], outline_id: Optional[str] = None, wo
 def get_evolution_rules() -> str:
     """提取系统在运行中自主学习沉淀的防错法则"""
     try:
-        path = os.path.join(os.path.dirname(__file__), ".gemini", "skills", "evolution", "SKILL.md")
+        path = os.path.join(BASE_DIR, ".gemini", "skills", "evolution", "SKILL.md")
         if not os.path.exists(path):
             return "暂无进化法则。"
         with open(path, "r", encoding="utf-8") as f:
@@ -578,8 +578,15 @@ def get_vector_store(worldview_id: str = "default_wv", outline_id: Optional[str]
     emb = get_embedding_function(task_type="retrieval_query")
     
     # Persistent storage for Chroma
-    base_dir = os.path.dirname(os.path.abspath(__file__))
-    chroma_path = os.path.join(base_dir, "chroma_db")
+    config = load_config()
+    db_base = config.get("DB_PATH", "data")
+    if not os.path.isabs(db_base):
+        db_root = os.path.join(BASE_DIR, db_base)
+    else:
+        db_root = db_base
+    
+    chroma_path = os.path.join(db_root, "chroma_db")
+    os.makedirs(chroma_path, exist_ok=True)
     client = chromadb.PersistentClient(path=chroma_path)
     
     vs = Chroma(client=client, collection_name=collection_name, embedding_function=emb)

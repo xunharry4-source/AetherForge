@@ -41,15 +41,35 @@ def start_agent(agent_type: str, action: str, payload: dict, message: str = ""):
     assert run["agent_type"] == agent_type, run
     assert run["action"] == action, run
     assert any(node["node_id"] == "input" and node["input"]["payload"] for node in run["nodes"]), run
-    draft_node = next(node for node in run["nodes"] if node["node_id"] == "draft")
-    assert draft_node["output"]["payload"], run
-    assert draft_node["output"]["llm_invoked"] is True, draft_node
-    assert draft_node["output"]["raw_response"], draft_node
-    for key, value in draft_node["output"]["payload"].items():
+    generation_node_id = "initial_expansion"
+    generation_node = next(node for node in run["nodes"] if node["node_id"] == generation_node_id)
+    assert generation_node["output"]["payload"], run
+    assert generation_node["output"]["llm_invoked"] is True, generation_node
+    assert generation_node["output"]["raw_response"], generation_node
+    assert all(node["node_id"] != "draft" for node in run["nodes"]), run
+    if agent_type == "world":
+        assert all(node["node_id"] != "review" for node in run["nodes"]), run
+    if agent_type == "worldview":
+        assert any(node["node_id"] == "world_rule_review" for node in run["nodes"]), run
+        assert any(node["node_id"] == "worldview_consistency_review" for node in run["nodes"]), run
+        assert all(node["node_id"] != "review" for node in run["nodes"]), run
+    if agent_type == "outline":
+        assert any(node["node_id"] == "world_review" for node in run["nodes"]), run
+        assert any(node["node_id"] == "worldview_review" for node in run["nodes"]), run
+        assert any(node["node_id"] == "novel_review" for node in run["nodes"]), run
+        assert all(node["node_id"] != "review" for node in run["nodes"]), run
+    if agent_type == "chapter":
+        assert any(node["node_id"] == "world_review" for node in run["nodes"]), run
+        assert any(node["node_id"] == "worldview_review" for node in run["nodes"]), run
+        assert any(node["node_id"] == "novel_review" for node in run["nodes"]), run
+        assert any(node["node_id"] == "outline_review" for node in run["nodes"]), run
+        assert any(node["node_id"] == "chapter_review" for node in run["nodes"]), run
+        assert all(node["node_id"] != "review" for node in run["nodes"]), run
+    for key, value in generation_node["output"]["payload"].items():
         if key in {"name", "summary", "content", "world_id", "worldview_id", "novel_id", "outline_id", "target_id"}:
             assert run["pending_payload"].get(key) == value, {
                 "field": key,
-                "draft_payload": draft_node["output"]["payload"],
+                "generation_payload": generation_node["output"]["payload"],
                 "pending_payload": run["pending_payload"],
             }
     return run
@@ -126,8 +146,10 @@ def test_hierarchy_agent_workflow_lifecycle():
             "创建世界规则",
         )
         assert worldview_run["review_required"] is True, worldview_run
-        review = next(node for node in worldview_run["nodes"] if node["node_id"] == "review")
-        assert review["output"]["passed"] is True, review
+        world_rule_review = next(node for node in worldview_run["nodes"] if node["node_id"] == "world_rule_review")
+        consistency_review = next(node for node in worldview_run["nodes"] if node["node_id"] == "worldview_consistency_review")
+        assert world_rule_review["output"]["passed"] is True, world_rule_review
+        assert consistency_review["output"]["passed"] is True, consistency_review
         worldview_run = approve(worldview_run["run_id"])
         worldview_id = worldview_run["commit_result"]["worldview_id"]
         assert find_by_id(f"{API_PREFIX}/worldviews/list", "worldview_id", worldview_id, {"worldview_id": worldview_id, "page": 1, "page_size": 10})["world_id"] == world_id

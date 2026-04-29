@@ -1,3 +1,4 @@
+import os
 import json
 import uuid
 import datetime
@@ -19,7 +20,16 @@ lore_coll = db["lore"]
 print("[成功] MongoDB 已连接。")
 
 # 2. ChromaDB 设置
-chroma_client = chromadb.PersistentClient(path="./chroma_db")
+db_base = CONFIG.get("DB_PATH", "data")
+if not os.path.isabs(db_base):
+    from src.common.config_utils import BASE_DIR
+    db_root = os.path.join(BASE_DIR, db_base)
+else:
+    db_root = db_base
+
+chroma_path = os.path.join(db_root, "chroma_db")
+os.makedirs(chroma_path, exist_ok=True)
+chroma_client = chromadb.PersistentClient(path=chroma_path)
 vector_store = Chroma(
     client=chroma_client,
     collection_name=CONFIG.get("CHROMA_COLLECTION_NAME", "pga_worldview_v1"),

@@ -4,19 +4,23 @@ import os
 import threading
 from datetime import datetime
 
-USAGE_FILE = "agent_usage.json"
+from .lore_utils import get_db_path
 _lock = threading.Lock()
 
 def load_usage():
     """Load usage statistics from file."""
     with _lock:
-        with open(USAGE_FILE, 'r', encoding='utf-8') as f:
+        path = get_db_path("agent_usage.json")
+        if not os.path.exists(path):
+            return {}
+        with open(path, 'r', encoding='utf-8') as f:
             return json.loads(f.read())
 
 def save_usage(usage_data):
     """Save usage statistics to file."""
     with _lock:
-        with open(USAGE_FILE, 'w', encoding='utf-8') as f:
+        path = get_db_path("agent_usage.json")
+        with open(path, 'w', encoding='utf-8') as f:
             json.dump(usage_data, f, indent=2, ensure_ascii=False)
 
 def update_agent_usage(agent_name, input_tokens, output_tokens):

@@ -89,6 +89,15 @@ type WorldNode = {
   novels?: NovelNode[];
 };
 
+const uniqueWorldsById = (items: WorldNode[]): WorldNode[] => {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    if (!item.world_id || seen.has(item.world_id)) return false;
+    seen.add(item.world_id);
+    return true;
+  });
+};
+
 type SelectedNode = {
   kind: NodeKind;
   id: string;
@@ -204,7 +213,7 @@ export const WorldHierarchy: React.FC = () => {
     setError(null);
     try {
       const worldResponse = await api.listWorlds();
-      const nextWorlds = worldResponse.data || [];
+      const nextWorlds = uniqueWorldsById(worldResponse.data || []);
       setWorlds(nextWorlds);
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || String(err));
@@ -452,7 +461,7 @@ export const WorldHierarchy: React.FC = () => {
               </Table.Thead>
               <Table.Tbody>
                 {worldRows.map((item) => (
-                    <Table.Tr key={`${item.kind}:${item.id}`} onClick={() => selectNode(item.kind, item.id, item.label, item.data)} style={{ cursor: 'pointer' }}>
+                    <Table.Tr key={`${item.kind}:${item.id}`} onClick={() => navigate(`/worlds/${encodeURIComponent(item.id)}`)} style={{ cursor: 'pointer' }} title="点击进入世界详情">
                       <Table.Td><Badge size="sm">{labels[item.kind]}</Badge></Table.Td>
                       <Table.Td><Text size="xs" truncate maw={160}>{item.id}</Text></Table.Td>
                       <Table.Td>{item.label}</Table.Td>
