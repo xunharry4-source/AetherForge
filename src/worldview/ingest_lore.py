@@ -6,9 +6,8 @@ import sys
 import time
 import xml.etree.ElementTree as ET
 
-# 1. Use LangChain wrappers for Chroma and Google GenAI (Proven stable in test_search.py)
+# 1. Use LangChain wrappers for Chroma and configured embeddings.
 try:
-    from langchain_google_genai import GoogleGenerativeAIEmbeddings
     from langchain_chroma import Chroma
     import chromadb
 except ImportError as e:
@@ -17,22 +16,19 @@ except ImportError as e:
 
 # Configuration Helper
 from src.common.config_utils import get_config
+from src.common.lore_utils import get_embedding_function
 
 CONFIG = get_config()
-GOOGLE_API_KEY = CONFIG.get("GOOGLE_API_KEY")
-
-if not GOOGLE_API_KEY:
-    print("[ERROR] GOOGLE_API_KEY missing. Please fill it in config.json or set it as an env var.")
-    sys.exit(1)
-
-print(f"[DEBUG] Configuring Gemini API with key: {GOOGLE_API_KEY[:8]}...", flush=True)
+print(
+    f"[DEBUG] Embedding provider: {CONFIG.get('EMBEDDING_PROVIDER', 'ollama')}, "
+    f"Ollama model: {CONFIG.get('OLLAMA_EMBEDDING_MODEL', 'embeddinggemma')}",
+    flush=True
+)
 
 # DB Connection
 print("[DEBUG] Connecting to ChromaDB at ./chroma_db...", flush=True)
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 print("[DEBUG] ChromaDB Connected.", flush=True)
-
-import xml.etree.ElementTree as ET
 
 def get_opml_chunks(file_path):
     print(f"[START] OPML Structural Parsing {file_path}...", flush=True)
@@ -109,13 +105,9 @@ class APIKeyManager:
         return True
 
 def ingest(opml_path):
-    # 1. Load config and keys
+    # 1. Load config and optional keys
     config = get_config()
     all_keys = config.get("GOOGLE_API_KEYS", [])
-    if not all_keys:
-        print("[ERROR] No API Keys found in config.json or environment.")
-        return
-
     key_manager = APIKeyManager(all_keys)
     
     # 2. Parse OPML
@@ -133,12 +125,8 @@ def ingest(opml_path):
     print(f"[INFO] Extracted {total} hierarchical chunks. Indexing into ChromaDB...", flush=True)
     
     # 3. Handle Vector Store with Rotation capability
-    def init_vector_store(api_key):
-        embeddings = GoogleGenerativeAIEmbeddings(
-            model="models/gemini-embedding-001", 
-            google_api_key=api_key,
-            task_type="retrieval_document"
-        )
+    def init_vector_store():
+        embeddings = get_embedding_function(task_type="retrieval_document")
         import chromadb
         client = chromadb.PersistentClient(path="./chroma_db")
         return Chroma(
@@ -148,7 +136,7 @@ def ingest(opml_path):
         )
 
     try:
-        vector_store = init_vector_store(key_manager.get_current_key())
+        vector_store = init_vector_store()
         print("[DEBUG] Vector Store initialized.", flush=True)
     except Exception as e:
         print(f"[ERROR] Failed to initialize Vector Store: {e}")
@@ -170,7 +158,8 @@ def ingest(opml_path):
         chunk["doc_id"] = str(uuid.uuid4())
         chunk["timestamp"] = datetime.datetime.now().isoformat()
 
-    print(f"[INFO] Ingesting {len(chunks)} chunks using {len(all_keys)} keys (Skipping already indexed)...", flush=True)
+    retry_budget = max(len(all_keys), 1) * 2
+    print(f"[INFO] Ingesting {len(chunks)} chunks using configured embeddings (Skipping already indexed)...", flush=True)
     
     count = 0
     for i, chunk in enumerate(chunks):
@@ -179,7 +168,7 @@ def ingest(opml_path):
             continue
 
         success = False
-        for attempt in range(len(all_keys) * 2): # Retry across keys
+        for attempt in range(retry_budget): # Retry across keys if using a key-backed provider
             try:
                 vector_store.add_texts(
                     texts=[chunk['content']],
@@ -198,7 +187,7 @@ def ingest(opml_path):
                     print(f"[QUOTA EXCEEDED] Key #{key_manager.index + 1} exhausted.", flush=True)
                     if key_manager.rotate():
                         # Re-initialize vector store with NEW key
-                        vector_store = init_vector_store(key_manager.get_current_key())
+                        vector_store = init_vector_store()
                         continue # Retry immediately with new key
                     else:
                         print("[WAIT] All keys exhausted or only one key available. Waiting 70s...", flush=True)

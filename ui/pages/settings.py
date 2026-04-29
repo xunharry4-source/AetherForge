@@ -6,29 +6,20 @@ import httpx
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.common.lore_utils import get_all_templates, upsert_category_template, delete_category_template, add_new_category
+from src.common.config_utils import load_config, save_config
 from ui.layout import page_layout
 
-FLASK_API = 'http://localhost:5005'
-CONFIG_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'config.json')
+FLASK_API = 'http://localhost:5006'
 
 
 def _load_config():
-    """加载 config.json 用于展示。"""
-    if not os.path.exists(CONFIG_PATH):
-        return {}
-    with open(CONFIG_PATH, 'r', encoding='utf-8') as f:
-        return json.load(f)
+    """加载模块化 YAML 配置用于展示。"""
+    return load_config()
 
 
 def _save_config(config):
-    """保存配置到 config.json。"""
-    try:
-        with open(CONFIG_PATH, 'w', encoding='utf-8') as f:
-            json.dump(config, f, ensure_ascii=False, indent=2)
-        return True
-    except Exception as e:
-        print(f"Error saving config: {e}")
-        return False
+    """保存配置到 config/*.yml。"""
+    return save_config(config)
 
 
 @ui.page('/settings')
@@ -203,7 +194,7 @@ def settings_page():
         # ========== 第三部分：系统配置（详见） ==========
         with ui.card().classes('w-full bg-slate-900 border border-slate-700 p-6 mt-6'):
             ui.label('系统配置').classes('text-lg font-bold text-white mb-2')
-            ui.label('当前 config.json 配置项（只读）。').classes('text-slate-400 text-xs mb-4')
+            ui.label('当前模块化 YAML 配置项（只读）。').classes('text-slate-400 text-xs mb-4')
 
             config = _load_config()
             if config:
@@ -225,4 +216,4 @@ def settings_page():
                 ]
                 ui.table(columns=columns, rows=rows, row_key='key').classes('w-full').props('flat bordered dense dark')
             else:
-                ui.label('未找到 config.json 或文件为空。').classes('text-slate-500 italic')
+                ui.label('未找到配置文件或文件为空。').classes('text-slate-500 italic')

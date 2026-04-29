@@ -1,26 +1,97 @@
 import os
 import json
-import logging
 from dotenv import load_dotenv
 from .logger_utils import get_logger
 
+try:
+    import yaml
+except ImportError:  # pragma: no cover - only used before dependencies are installed.
+    yaml = None
+
 logger = get_logger("novel_agent.config")
+
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+CONFIG_DIR = os.path.join(BASE_DIR, "config")
+LEGACY_CONFIG_PATH = os.path.join(BASE_DIR, "config.json")
+CONFIG_MODULES = [
+    "app.yml",
+    "llm.yml",
+    "embeddings.yml",
+    "storage.yml",
+    "observability.yml",
+    "integrations.yml",
+    "secrets.yml",
+]
+
+CONFIG_FIELD_MODULES = {
+    "app.yml": {"AUTONOMY_LEVEL"},
+    "llm.yml": {
+        "LLM_PROVIDER", "DEFAULT_MODEL", "DEFAULT_MODEL_MAP", "LLM_MODELS",
+        "AGENT_MODELS", "OLLAMA_BASE_URL", "LOCAL_LLM_URL", "OPENAI_BASE_URL",
+    },
+    "embeddings.yml": {
+        "EMBEDDING_PROVIDER", "DEFAULT_EMBEDDING_MODEL", "OLLAMA_EMBEDDING_MODEL",
+        "EMBEDDING_MODELS",
+    },
+    "storage.yml": {"MONGO_URI", "MONGO_DB_NAME", "CHROMA_COLLECTION_NAME", "DB_PATH"},
+    "observability.yml": {
+        "LOG_PATH", "SENTRY_DSN", "LANGFUSE_PUBLIC_KEY", "LANGFUSE_SECRET_KEY",
+        "LANGFUSE_HOST",
+    },
+    "integrations.yml": {"DIFY_API_KEY", "DIFY_BASE_URL", "DIFY_DATASET_MAP"},
+    "secrets.yml": {"GOOGLE_API_KEY", "GOOGLE_API_KEYS", "OPENAI_API_KEY"},
+}
+
+
+def _read_yaml_file(path: str) -> dict:
+    if yaml is None:
+        raise RuntimeError("PyYAML is required to read YAML config files.")
+    if not os.path.exists(path):
+        return {}
+    with open(path, "r", encoding="utf-8") as f:
+        data = yaml.safe_load(f) or {}
+    if not isinstance(data, dict):
+        raise ValueError(f"Config module must be a mapping: {path}")
+    return data
+
+
+def _load_file_config() -> dict:
+    config = {}
+    module_paths = [os.path.join(CONFIG_DIR, name) for name in CONFIG_MODULES]
+    if any(os.path.exists(path) for path in module_paths):
+        for path in module_paths:
+            config.update(_read_yaml_file(path))
+        return config
+
+    if os.path.exists(LEGACY_CONFIG_PATH):
+        with open(LEGACY_CONFIG_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    return config
+
+
+def _module_for_key(key: str) -> str:
+    for module, keys in CONFIG_FIELD_MODULES.items():
+        if key in keys:
+            return module
+    return "app.yml"
+
+
+def _write_yaml_file(path: str, data: dict) -> None:
+    if yaml is None:
+        raise RuntimeError("PyYAML is required to write YAML config files.")
+    with open(path, "w", encoding="utf-8") as f:
+        yaml.safe_dump(data, f, allow_unicode=True, sort_keys=False, default_flow_style=False)
+
 
 def load_config():
     """Centralized configuration loader for the Novel Agent system."""
     load_dotenv()
-    
-    # config.json is in the project root. This file is in src/common/
-    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    config_path = os.path.join(base_dir, 'config.json')
-    config = {}
-    
-    if os.path.exists(config_path):
-        try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-        except Exception as e:
-            logger.error(f"Failed to load config.json: {e}")
+
+    try:
+        config = _load_file_config()
+    except Exception as e:
+        logger.error(f"Failed to load config files: {e}")
+        config = {}
     
     # Merge env vars for sensitive keys and LLM defaults
     env_keys = [
@@ -34,7 +105,7 @@ def load_config():
     ]
     
     for key in env_keys:
-        # Env vars take precedence over config.json
+        # Env vars take precedence over file config.
         val = os.getenv(key)
         if val:
             # Handle aliases
@@ -56,6 +127,7 @@ def load_config():
         "LLM_PROVIDER": "ollama",
         "DEFAULT_MODEL": "gemma4:e2b",
         "OLLAMA_BASE_URL": "http://localhost:11434/v1",
+        "AUTONOMY_LEVEL": "balanced",
         "EMBEDDING_PROVIDER": "ollama",
         "DEFAULT_EMBEDDING_MODEL": "embeddinggemma",
         "OLLAMA_EMBEDDING_MODEL": "embeddinggemma",
@@ -104,7 +176,7 @@ def load_config():
         if key not in config:
             config[key] = val
 
-    # Backfill model catalogs from legacy fields so older config.json files stay valid.
+    # Backfill model catalogs from legacy fields so older configs stay valid.
     llm_models = config.setdefault("LLM_MODELS", {})
     model_map = config.setdefault("DEFAULT_MODEL_MAP", {})
     for provider_name, default_model in model_map.items():
@@ -143,16 +215,27 @@ def load_config():
     return config
 
 def save_config(new_config: dict):
-    """Persists configuration to config.json."""
-    base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    config_path = os.path.join(base_dir, 'config.json')
+    """Persists configuration to module-scoped YAML files under config/."""
     try:
-        # Save to file
-        with open(config_path, 'w', encoding='utf-8') as f:
-            json.dump(new_config, f, indent=2, ensure_ascii=False)
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        modules = {name: {} for name in CONFIG_MODULES}
+        for key, value in new_config.items():
+            if _module_for_key(key) == "secrets.yml":
+                continue
+            module = _module_for_key(key)
+            modules[module][key] = value
+
+        for module_name, data in modules.items():
+            if module_name == "secrets.yml":
+                continue
+            path = os.path.join(CONFIG_DIR, module_name)
+            if data:
+                _write_yaml_file(path, data)
+            elif os.path.exists(path):
+                os.remove(path)
         return True
     except Exception as e:
-        logger.error(f"Failed to save config.json: {e}")
+        logger.error(f"Failed to save YAML config modules: {e}")
         return False
 
 def get_config():

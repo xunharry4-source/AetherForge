@@ -1,79 +1,98 @@
-import os
-import sys
 import unittest
 import uuid
-from unittest.mock import patch
+import json
+import requests
 
-# Add src to path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+BASE_URL = "http://localhost:5006"
 
-from src.novel.writing_execution_agent_langgraph import write_draft_func, WritingState
-
-class TestIterationLogicClinical(unittest.TestCase):
-    """迭代逻辑临床级物理测试：验证 Patch 与 Rewrite 模式的真实有效性"""
+class TestIterationLogicClinicalAPI(unittest.TestCase):
+    """迭代逻辑临床级 API 测试：通过真实接口验证 Patch 与 Rewrite 模式的有效性"""
 
     def setUp(self):
-        self.test_scene_id = f"iter_test_{uuid.uuid4().hex[:8]}"
         self.original_content = "夕阳洒在破碎的舷窗上，林越抹去脸上的血迹，看着引擎冒出的黑烟，心中一片死寂。这是他最后的机会。"
 
+    def _stream_agent_and_get_final(self, payload: dict) -> str:
+        """发起流式 Agent 请求，解析 NDJSON 并返回最终草稿内容"""
+        res = requests.post(f"{BASE_URL}/api/agent/query", json=payload, stream=True, timeout=120)
+        self.assertEqual(res.status_code, 200, f"Agent 启动失败: {res.text[:300]}")
+
+        final_content = ""
+        for line in res.iter_lines():
+            if not line:
+                continue
+            try:
+                msg = json.loads(line.decode("utf-8"))
+            except Exception:
+                continue
+            msg_type = msg.get("type", "")
+            if msg_type == "error":
+                self.fail(f"Agent 流中检测到 error: {msg}")
+            # 从 final_state 或 node_update 中提取 draft_content
+            if msg_type in ("final_state", "node_update"):
+                state = msg.get("state") or msg.get("data") or {}
+                if isinstance(state, dict) and state.get("draft_content"):
+                    final_content = state["draft_content"]
+            if msg_type == "final_state":
+                break
+
+        self.assertTrue(len(final_content) > 0, "Agent 流中未返回任何 draft_content")
+        return final_content
+
     def test_patch_mode_preservation(self):
-        """验证 Patch 模式是否真实保留了原文内容"""
-        print("\n[Clinical Test] 验证 Patch 模式 (局部修订) 的保留率")
-        
-        state: WritingState = {
+        """验证 partial_rewrite 模式是否真实保留了原文核心内容"""
+        print("\n[Clinical API Test] 验证 partial_rewrite 模式 (局部修订) 的保留率")
+        thread_id = f"patch_test_{uuid.uuid4().hex[:8]}"
+
+        payload = {
+            "query": "微调：林越不是死寂，而是充满了愤怒",
+            "agent_type": "chapter",
+            "thread_id": thread_id,
+            "worldview_id": "default_wv",
+            "rewrite_mode": "partial_rewrite",
             "draft_content": self.original_content,
-            "user_feedback": "微调：林越不是死寂，而是充满了愤怒",
-            "novel_summary": "星际末世背景",
-            "outline_content": "林越逃出生天",
-            "active_scene_index": 0,
-            "scene_list": [{"title": "坠毁", "description": "林越在废墟中醒来"}],
             "context_data": "林越是一名退役机师",
-            "retry_count": 0
+            "outline_content": "林越逃出生天"
         }
-        
-        # 执行写节点
-        # 注意：这里会真实调用 LLM
-        print("  - Step 1: 调用 LLM 进行 Patch 模式修订...")
-        result = write_draft_func(state, config={})
-        new_content = result.get("draft_content", "")
-        
-        # 物理检查：原文中的核心词汇（如“舷窗”、“血迹”、“黑烟”）是否还在？
+
+        print("  - Step 1: 调用 Agent 进行 partial_rewrite 模式修订...")
+        new_content = self._stream_agent_and_get_final(payload)
+
+        # 核心词汇保留率检查
         print("  - Step 2: 检查原文核心片段保留情况")
         keywords = ["舷窗", "血迹", "黑烟"]
         found_count = sum(1 for k in keywords if k in new_content)
-        
         print(f"    [数据] 原文核心词保留数: {found_count}/{len(keywords)}")
-        self.assertGreaterEqual(found_count, 2, "Patch 模式失败：原文核心描写被大范围重写")
-        self.assertIn("怒", new_content, "Patch 模式失败：用户修改建议未被采纳")
+        self.assertGreaterEqual(found_count, 2, f"partial_rewrite 失败：原文核心描写被大范围重写\n新内容：{new_content[:200]}")
+        self.assertIn("怒", new_content, f"partial_rewrite 失败：用户修改建议（愤怒）未被采纳\n新内容：{new_content[:200]}")
+        print(f"    ✅ partial_rewrite 保留率通过")
 
     def test_rewrite_mode_flexibility(self):
-        """验证 Rewrite 模式是否真实执行了全量重写"""
-        print("\n[Clinical Test] 验证 Rewrite 模式 (全量重写) 的自由度")
-        
-        state: WritingState = {
+        """验证 full_rewrite 模式是否真实执行了全量重写"""
+        print("\n[Clinical API Test] 验证 full_rewrite 模式 (全量重写) 的自由度")
+        thread_id = f"rewrite_test_{uuid.uuid4().hex[:8]}"
+
+        payload = {
+            "query": "全部重写：把场景换成清晨的森林，林越在水边醒来",
+            "agent_type": "chapter",
+            "thread_id": thread_id,
+            "worldview_id": "default_wv",
+            "rewrite_mode": "full_rewrite",
             "draft_content": self.original_content,
-            "user_feedback": "全部重写：把场景换成清晨的森林，林越在水边醒来",
-            "novel_summary": "奇幻背景",
-            "outline_content": "林越的新生",
-            "active_scene_index": 0,
-            "scene_list": [{"title": "苏醒", "description": "林越在河边醒来"}],
             "context_data": "林越是一名精灵",
-            "retry_count": 0
+            "outline_content": "林越的新生"
         }
-        
-        # 执行写节点
-        print("  - Step 1: 调用 LLM 进行 Rewrite 模式重写...")
-        result = write_draft_func(state, config={})
-        new_content = result.get("draft_content", "")
-        
-        # 物理检查：原文中的“舷窗”、“引擎”等词汇是否已经消失？
-        print("  - Step 2: 检查内容偏移度")
+
+        print("  - Step 1: 调用 Agent 进行 full_rewrite 模式重写...")
+        new_content = self._stream_agent_and_get_final(payload)
+
+        # 偏移度检查：原文星际科幻词汇应消失
+        print("  - Step 2: 检查内容偏移度（旧词不应残留）")
         forbidden_keywords = ["舷窗", "引擎", "黑烟"]
         found_count = sum(1 for k in forbidden_keywords if k in new_content)
-        
         print(f"    [数据] 残留旧词数: {found_count}")
-        self.assertLessEqual(found_count, 0, "Rewrite 模式失败：内容仍残留在旧版本的语境中")
-        self.assertIn("森林", new_content, "Rewrite 模式失败：新需求未被执行")
+        self.assertLessEqual(found_count, 0, f"full_rewrite 失败：内容仍残留旧版本语境\n新内容：{new_content[:200]}")
+        self.assertIn("森林", new_content, f"full_rewrite 失败：新需求「森林」未被执行\n新内容：{new_content[:200]}")
+        print(f"    ✅ full_rewrite 偏移度通过")
 
 if __name__ == "__main__":
     unittest.main()

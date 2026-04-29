@@ -30,6 +30,11 @@ The system splits novel creation into three core Agent stages:
 -   **Lore/Anchors**: Locks unchangeable plot twists and character fates.
 -   **Catalog**: Implements physical slicing and "Active Window" management to keep context size manageable.
 
+### 4. World Hierarchy Management
+-   The `/worlds` page manages `World -> [Worldview, Novel] -> Outline -> Chapter`.
+-   Worldviews describe a world's rules and settings; novels are stories that happen inside the same world. MongoDB stores them in `worlds`, `worldviews`, `novels`, `outlines`, and `prose`; chapters remain in the `prose` collection.
+-   Create/update/delete actions run through independent hierarchy agents: `world_agent`, `worldview_agent`, `novel_agent`, `outline_agent`, and `chapter_agent`. World changes skip review; all other entity types require review plus human approval before the database write. Change requests default to partial rewrite, with full rewrite and minor edit as explicit alternatives; manually edited form fields are persisted with `manual_edit=true`.
+
 ---
 
 ## 🛠️ Quick Start
@@ -40,15 +45,7 @@ pip install -r requirements.txt
 ```
 
 ### 2. Configure Environment
-Set up your API keys and observability DSNs in `config.json`:
-```json
-{
-    "GOOGLE_API_KEYS": ["YOUR_API_KEY_1", "YOUR_API_KEY_2"],
-    "SENTRY_DSN": "YOUR_SENTRY_DSN",
-    "LANGFUSE_PUBLIC_KEY": "YOUR_LANGFUSE_PK",
-    "LANGFUSE_SECRET_KEY": "YOUR_LANGFUSE_SK"
-}
-```
+Configuration lives in modular `config/*.yml` files, including `llm.yml`, `embeddings.yml`, `storage.yml`, and `observability.yml`. Put secrets in `.env` or in git-ignored `config/secrets.yml`.
 
 ### 3. Start Observability Services (Optional)
 Ensure Docker is installed:
@@ -66,7 +63,7 @@ To ensure permissions are handled correctly, it is recommended to start the back
 /usr/bin/python3 app_api.py
 ```
 *   **Role**: Provides underlying Agent logic, database management, and hierarchical RAG retrieval interfaces.
-*   **URL**: `http://localhost:5005`
+*   **URL**: `http://localhost:5006`
 
 **Start the Frontend UI:**
 Open a new terminal window:
@@ -82,6 +79,11 @@ Open a new terminal window:
 -   **Dual-DB Atomicity**: Approved settings sync to MongoDB (Full Text) and ChromaDB (Vector Index).
 -   **Human-defined Authority**: Critical plot points are locked in SKILLs and cannot be overridden by AI.
 -   **Observability First**: All agent executions must be traceable and measurable.
+-   **No unbounded non-world reads**: Except for the `worlds` list, worldviews, novels, outlines, chapters, and workflow-run queries must include both a business condition and `page/page_size`. Missing filters or pagination return explicit `400` errors; APIs must not fall back to fake data or JSONL files.
+-   **Idempotent Migration**: Run `PYTHONPATH=.:src:src/common .venv/bin/python scripts/migrate_world_hierarchy.py` to backfill legacy records with `world_id` and `novel_id`.
+-   **Real API Verification**: Run `API_BASE_URL=http://127.0.0.1:5006 .venv/bin/python tests/test_world_hierarchy_requests.py`; the test uses `requests` against the live API and verifies every create/update/delete through follow-up queries.
+-   **Real Agent Workflow Verification**: Run `API_BASE_URL=http://127.0.0.1:5006 .venv/bin/python tests/test_hierarchy_agent_workflow_requests.py`; it verifies independent agents, review nodes, human iteration, approval, real writes, and follow-up queries.
+-   **Real Outline/Chapter Workflow Verification**: Run `API_BASE_URL=http://127.0.0.1:5006 .venv/bin/python tests/test_outline_chapter_workflow_requests.py`; it verifies conditional paginated state queries plus real chapter create/update/query behavior.
 
 ---
 

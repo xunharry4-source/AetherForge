@@ -1160,7 +1160,7 @@ def batch_reject_draft_entities(entity_names: List[str], outline_id: Optional[st
         logger.error(f"Batch reject failed: {e}")
         raise e
     
-def sync_archive_to_all_stores(item_id: str, item_type: str, content: str, name: Optional[str] = None, outline_id: Optional[str] = None) -> bool:
+def sync_archive_to_all_stores(item_id: str, item_type: str, content: str, name: Optional[str] = None, outline_id: Optional[str] = None, worldview_id: Optional[str] = None) -> bool:
     """
     将修改后的条目同步到 MongoDB, ChromaDB 和技能系统 (SKILL)。
     """
@@ -1202,7 +1202,7 @@ def sync_archive_to_all_stores(item_id: str, item_type: str, content: str, name:
 
     # 2. ChromaDB Sync (Vector Re-indexing)
     try:
-        vector_store = get_vector_store()
+        vector_store = get_vector_store(worldview_id=worldview_id or "default_wv", outline_id=outline_id)
         if vector_store:
             # 在 ChromaDB 中，我们通常使用 doc_id 作为 metadata 的一部分
             # 这里采取：先删除旧的，再插入新的（最简单的同步方式）
@@ -1238,129 +1238,99 @@ def sync_archive_to_all_stores(item_id: str, item_type: str, content: str, name:
             
     return True
 
-def get_all_lore_items(outline_id=None, worldview_id=None):
-    """从 MongoDB 聚合所有资料（世界观、大纲、正文、草案）。"""
+def get_all_lore_items(outline_id=None, worldview_id=None, novel_id=None, world_id=None, page=1, page_size=100):
+    """从 MongoDB 分页聚合有明确条件的资料（世界观、大纲、正文）。"""
+    if not any([outline_id, worldview_id, novel_id, world_id]):
+        raise ValueError("get_all_lore_items requires one of outline_id, worldview_id, novel_id, world_id")
+    try:
+        page = int(page)
+        page_size = int(page_size)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("page and page_size must be integers") from exc
+    if page < 1:
+        raise ValueError("page must be >= 1")
+    if page_size < 1 or page_size > 100:
+        raise ValueError("page_size must be between 1 and 100")
+    skip = (page - 1) * page_size
     all_docs = []
     try:
-        # 1. 世界观 (MongoDB)
         query = {}
         if worldview_id: query["worldview_id"] = worldview_id
         if outline_id: query["outline_id"] = outline_id
-        
-        try:
-            db = get_mongodb_db()
-            lore_cursor = db["lore"].find(query)
-            for item in lore_cursor:
-                all_docs.append({
-                    "id": item.get("doc_id") or str(item.get("_id")),
-                    "type": "worldview",
-                    "name": item.get("name") or item.get("query") or "未命名条目",
-                    "content": item.get("content"),
-                    "category": item.get("path") or item.get("category", "Worldview"),
-                    "timestamp": item.get("timestamp", "N/A"),
-                    "outline_id": item.get("outline_id"),
-                    "worldview_id": item.get("worldview_id")
-                })
-        except Exception as e:
-            logger.error(f"Failed to fetch lore from MongoDB: {e}")
-            wv_path = get_db_path("worldview_db.json", worldview_id=worldview_id)
-            if os.path.exists(wv_path):
-                with open(wv_path, "r", encoding="utf-8") as f:
-                    for line in f:
-                        if not line.strip():
-                            continue
-                        item = json.loads(line)
-                        all_docs.append({
-                            "id": item.get("doc_id") or item.get("id"),
-                            "type": "worldview",
-                            "name": item.get("name") or item.get("query") or "未命名条目",
-                            "content": item.get("content"),
-                            "category": item.get("path") or item.get("category", "Worldview"),
-                            "timestamp": item.get("timestamp", "N/A"),
-                            "outline_id": item.get("outline_id"),
-                            "worldview_id": item.get("worldview_id") or worldview_id or "default_wv"
-                        })
+        if novel_id: query["novel_id"] = novel_id
+        if world_id: query["world_id"] = world_id
 
-        # 2. Outlines (JSONL) - Special handling as they are the root of projects
-        outlines_path = get_db_path("outlines_db.json") # Global outlines registry
-        if os.path.exists(outlines_path):
-            with open(outlines_path, 'r', encoding='utf-8') as f:
-                for line in f:
-                    if not line.strip(): continue
-                    try:
-                        curr_oid = None
-                        item = json.loads(line)
-                        curr_wid = item.get("worldview_id") or "default_wv"
-                        curr_oid = item.get("id") or item.get("outline_id")
-                        if worldview_id and curr_wid != worldview_id:
-                            continue
-                        if outline_id and curr_oid != outline_id:
-                            continue
-                        all_docs.append({
-                            "id": curr_oid,
-                            "type": "outline",
-                            "name": item.get("name") or item.get("title") or item.get("query") or "未命名大纲",
-                            "content": item.get("content") or item.get("summary") or item.get("proposal"),
-                            "category": f"Outlines > {item.get('book_title') or 'Novel'}",
-                            "timestamp": item.get("timestamp", "N/A"),
-                            "outline_id": curr_oid,
-                            "worldview_id": curr_wid
-                        })
-                    except Exception as e:
-                        logger.warning(f"Failed to parse outline line: {e}")
+        db = get_mongodb_db()
+        lore_cursor = db["lore"].find(query).sort("timestamp", -1).skip(skip).limit(page_size)
+        for item in lore_cursor:
+            all_docs.append({
+                "id": item.get("doc_id") or str(item.get("_id")),
+                "type": "worldview",
+                "name": item.get("name") or item.get("query") or "未命名条目",
+                "content": item.get("content"),
+                "category": item.get("path") or item.get("category", "Worldview"),
+                "timestamp": item.get("timestamp", "N/A"),
+                "outline_id": item.get("outline_id"),
+                "novel_id": item.get("novel_id"),
+                "worldview_id": item.get("worldview_id"),
+                "world_id": item.get("world_id")
+            })
 
-        # 3. Prose (JSONL) - Namespaced
-        prose_path = get_db_path("prose_db.json", outline_id=outline_id, worldview_id=worldview_id)
-        if os.path.exists(prose_path):
-            with open(prose_path, 'r', encoding='utf-8') as f:
-                for line in f:
-                    if not line.strip(): continue
-                    try:
-                        item = json.loads(line)
-                        all_docs.append({
-                            "id": item.get("prose_id") or item.get("scene_id") or item.get("id"),
-                            "type": "prose",
-                            "name": item.get("title") or item.get("scene_title") or item.get("query"),
-                            "content": item.get("content"),
-                            "category": "Proses",
-                            "timestamp": item.get("timestamp", "N/A"),
-                            "outline_id": outline_id or item.get("outline_id"),
-                            "worldview_id": worldview_id or item.get("worldview_id") or "default_wv"
-                        })
-                    except Exception as e:
-                        logger.warning(f"Failed to parse prose line: {e}")
-                    
-        # 4. Entity Drafts (JSONL) - Namespaced
-        draft_path = get_db_path("entity_drafts_db.json", outline_id=outline_id, worldview_id=worldview_id)
-        if os.path.exists(draft_path):
-            with open(draft_path, 'r', encoding='utf-8') as f:
-                for line in f:
-                    if not line.strip(): continue
-                    try:
-                        item = json.loads(line)
-                        draft_content_parts = []
-                        if item.get('source_context'):
-                            draft_content_parts.append(f"**来源上下文**: {item.get('source_context')}")
-                        if item.get('entity_card'):
-                            draft_content_parts.append(f"**设定卡**:\n```json\n{json.dumps(item.get('entity_card'), ensure_ascii=False, indent=2)}\n```")
-                        draft_content = '\n\n'.join(draft_content_parts) if draft_content_parts else None
-                        
-                        all_docs.append({
-                            "id": f"draft_{item.get('name')}",
-                            "type": "draft",
-                            "name": item.get('name'),
-                            "content": draft_content,
-                            "category": f"Drafts > {item.get('category', 'Uncategorized')}",
-                            "timestamp": item.get("timestamp", "N/A"),
-                            "outline_id": outline_id or item.get("outline_id"),
-                            "worldview_id": worldview_id or item.get("worldview_id") or "default_wv"
-                        })
-                    except Exception as e:
-                        logger.warning(f"Failed to parse draft line: {e}")
-                    
+        outline_query = {}
+        if worldview_id:
+            outline_query["worldview_id"] = worldview_id
+        if novel_id:
+            outline_query["novel_id"] = novel_id
+        if world_id:
+            outline_query["world_id"] = world_id
+        if outline_id:
+            outline_query["$or"] = [{"outline_id": outline_id}, {"id": outline_id}]
+        outline_cursor = db["outlines"].find(outline_query).sort("timestamp", -1).skip(skip).limit(page_size)
+        for item in outline_cursor:
+            curr_oid = item.get("outline_id") or item.get("id")
+            if not curr_oid:
+                continue
+            all_docs.append({
+                "id": curr_oid,
+                "type": "outline",
+                "name": item.get("name") or item.get("title") or item.get("query") or "未命名大纲",
+                "content": item.get("content") or item.get("summary") or item.get("proposal"),
+                "category": f"Outlines > {item.get('book_title') or 'Novel'}",
+                "timestamp": item.get("timestamp", "N/A"),
+                "outline_id": curr_oid,
+                "novel_id": item.get("novel_id"),
+                "worldview_id": item.get("worldview_id") or "default_wv",
+                "world_id": item.get("world_id") or "world_default"
+            })
+
+        prose_query = {}
+        if worldview_id:
+            prose_query["worldview_id"] = worldview_id
+        if novel_id:
+            prose_query["novel_id"] = novel_id
+        if world_id:
+            prose_query["world_id"] = world_id
+        if outline_id:
+            prose_query["outline_id"] = outline_id
+        prose_cursor = db["prose"].find(prose_query).sort("timestamp", -1).skip(skip).limit(page_size)
+        for item in prose_cursor:
+            prose_id = item.get("prose_id") or item.get("scene_id") or item.get("id")
+            if not prose_id:
+                continue
+            all_docs.append({
+                "id": prose_id,
+                "type": "prose",
+                "name": item.get("title") or item.get("scene_title") or item.get("name") or item.get("query") or "未命名正文",
+                "content": item.get("content"),
+                "category": "Proses",
+                "timestamp": item.get("timestamp", "N/A"),
+                "outline_id": item.get("outline_id"),
+                "novel_id": item.get("novel_id"),
+                "worldview_id": item.get("worldview_id") or "default_wv",
+                "world_id": item.get("world_id") or "world_default"
+            })
     except Exception as e:
         logger.error(f"[LORE UTILS ERROR] get_all_lore_items: {e}")
         raise e
         
-    all_docs.reverse() # Show newest first
-    return all_docs
+    return all_docs[:page_size]

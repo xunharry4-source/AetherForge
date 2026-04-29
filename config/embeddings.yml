@@ -1,0 +1,15 @@
+EMBEDDING_PROVIDER: ollama
+DEFAULT_EMBEDDING_MODEL: embeddinggemma
+OLLAMA_EMBEDDING_MODEL: embeddinggemma
+
+EMBEDDING_MODELS:
+  ollama:
+    default: embeddinggemma
+    models:
+      - embeddinggemma
+    base_url: http://localhost:11434/v1
+  gemini:
+    default: models/gemini-embedding-001
+    models:
+      - models/gemini-embedding-001
+

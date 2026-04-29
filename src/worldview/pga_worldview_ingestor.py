@@ -1,20 +1,20 @@
-import os
 import json
 import uuid
 import datetime
 import time
-from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_chroma import Chroma
 import chromadb
 import pymongo
+from src.common.config_utils import load_config
+from src.common.lore_utils import get_embedding_function
 
 # Configuration
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY") 
-embeddings = GoogleGenerativeAIEmbeddings(model="models/gemini-embedding-001", google_api_key=GOOGLE_API_KEY, task_type="retrieval_document")
+CONFIG = load_config()
+embeddings = get_embedding_function(task_type="retrieval_document")
 
-mongo_client = pymongo.MongoClient("mongodb://localhost:27017/", serverSelectionTimeoutMS=2000)
+mongo_client = pymongo.MongoClient(CONFIG.get("MONGO_URI", "mongodb://localhost:27017/"), serverSelectionTimeoutMS=2000)
 mongo_client.server_info()
-db = mongo_client["pga_worldview"]
+db = mongo_client[CONFIG.get("MONGO_DB_NAME", "pga_worldview")]
 lore_coll = db["lore"]
 print("[成功] MongoDB 已连接。")
 
@@ -22,7 +22,7 @@ print("[成功] MongoDB 已连接。")
 chroma_client = chromadb.PersistentClient(path="./chroma_db")
 vector_store = Chroma(
     client=chroma_client,
-    collection_name="pga_worldview_v1",
+    collection_name=CONFIG.get("CHROMA_COLLECTION_NAME", "pga_worldview_v1"),
     embedding_function=embeddings
 )
 

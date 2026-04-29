@@ -58,6 +58,7 @@
 -   **可视化工作流**：直观展示 Agent 的思考与执行过程。
 -   **人机协同**：支持在关键节点拦截任务，支持针对大纲或目录进行交互式增量修改。
 -   **文献档案库**：统一检索存储在 MongoDB 与 ChromaDB 中的历史设定。
+-   **世界层级 Agent 工作台**：`/worlds` 页面按 `世界 -> [世界观, 小说] -> 大纲 -> 章节` 管理业务实体；世界观记录世界规则与设定，小说记录这个世界发生的故事。创建/修改/删除通过独立 Agent 工作流推进，世界跳过审查，世界观、小说、大纲、章节必须经过审查与人工批准后才真实写库。
 
 ### 7. 全链路观测体系 (Full-Stack Observability)
 
@@ -105,19 +106,7 @@ pip install -r requirements.txt
 
 ### 2. 配置环境
 
-在 `config.json` 中配置你的 API Keys 及观测插件 DSN：
-
-```json
-{
-    "GOOGLE_API_KEYS": ["你的_API_KEY_1", "你的_API_KEY_2"],
-    "MONGO_URI": "mongodb://localhost:27017/",
-    "MONGO_DB_NAME": "pga_worldview",
-    "CHROMA_COLLECTION_NAME": "pga_worldview_v1",
-    "SENTRY_DSN": "你的_SENTRY_DSN",
-    "LANGFUSE_PUBLIC_KEY": "你的_LANGFUSE_PK",
-    "LANGFUSE_SECRET_KEY": "你的_LANGFUSE_SK"
-}
-```
+配置文件位于 `config/*.yml`，按模块拆分为 `llm.yml`、`embeddings.yml`、`storage.yml`、`observability.yml` 等。敏感信息建议放在 `.env`，也可以放在已被 git 忽略的 `config/secrets.yml`。
 
 > [!TIP]
 > **多项目隔离**：如果您有多个项目共享数据库，请通过修改 `MONGO_DB_NAME` 和 `CHROMA_COLLECTION_NAME` 来实现数据隔离。
@@ -145,7 +134,7 @@ docker-compose up -d
 /usr/bin/python3 app_api.py
 ```
 *   **职责**: 提供底层 Agent 逻辑、数据库管理和层级化 RAG 检索接口。
-*   **服务地址**: `http://localhost:5005`
+*   **服务地址**: `http://localhost:5006`
 
 **启动前端 UI 界面：**
 打开一个新的终端窗口：
@@ -161,6 +150,13 @@ docker-compose up -d
 ## ⚙️ 核心开发原则
 
 - **双库事务性**：所有已批准设定同步更新 MongoDB（全文）和 ChromaDB（向量）。
+- **世界层级模型**：MongoDB 使用 `worlds`、`worldviews`、`novels`、`outlines`、`prose`；`worldviews` 与 `novels` 同级归属于 `worlds`，章节继续存储在 `prose` 集合中。
+- **禁止非世界全量查询**：除 `worlds` 列表外，世界观、小说、大纲、章节、工作流运行记录等查询接口必须同时提供业务条件和 `page/page_size`；缺失条件或分页时返回明确 `400`，不得回退到假数据或 JSONL 文件。
+- **独立 Agent 工作流**：新增 `hierarchy_agent_runs` 集合记录 `world_agent`、`worldview_agent`、`novel_agent`、`outline_agent`、`chapter_agent` 的输入、草案、审查、人工反馈、真实写库节点；每个节点都可查看输入与输出。人工提交修改意见时默认 `局部重写`，也可以选择 `完全重写` 或 `小部分修改`；手动改过的表单字段会以 `manual_edit=true` 写入工作流。
+- **迁移旧数据**：执行 `PYTHONPATH=.:src:src/common .venv/bin/python scripts/migrate_world_hierarchy.py` 可幂等补齐旧数据的 `world_id` 与 `novel_id`。
+- **真实 API 测试**：执行 `API_BASE_URL=http://127.0.0.1:5006 .venv/bin/python tests/test_world_hierarchy_requests.py`，测试会用 `requests` 调真实接口并在每次增删改后查询验证结果。
+- **真实 Agent 工作流测试**：执行 `API_BASE_URL=http://127.0.0.1:5006 .venv/bin/python tests/test_hierarchy_agent_workflow_requests.py`，测试会验证独立 Agent、审查节点、人工迭代、批准写库以及后续查询结果。
+- **真实大纲章节工作流测试**：执行 `API_BASE_URL=http://127.0.0.1:5006 .venv/bin/python tests/test_outline_chapter_workflow_requests.py`，测试会验证状态查询必须带条件和分页，并检查章节真实写入、更新和查询结果。
 
 ---
 

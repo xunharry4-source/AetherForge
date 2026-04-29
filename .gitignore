@@ -3,6 +3,7 @@ __pycache__/
 *.py[cod]
 
 .env
+config/secrets.yml
 # Unified .venv environment
 .venv/
 env/

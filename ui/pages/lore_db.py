@@ -5,11 +5,9 @@ import sys
 import httpx
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from app_api import get_all_lore_items
-from src.common.lore_utils import get_db_path
 from ui.layout import page_layout
 
-FLASK_API = 'http://localhost:5005'
+FLASK_API = 'http://127.0.0.1:5006'
 
 
 def build_tree_data(docs):
@@ -50,17 +48,30 @@ def build_tree_data(docs):
     return [tree_data]
 
 
-async def _fetch_lore(worldview_id=None):
+async def _fetch_lore(world_id, worldview_id=None, page=1, page_size=50):
+    if not world_id:
+        return []
     async with httpx.AsyncClient() as client:
-        params = {}
+        params = {'world_id': world_id, 'page': page, 'page_size': page_size}
         if worldview_id:
             params['worldview_id'] = worldview_id
         res = await client.get(f'{FLASK_API}/api/lore/list', params=params, timeout=10)
         return res.json() if res.status_code == 200 else []
 
-async def _get_worldviews():
+async def _get_worlds():
     async with httpx.AsyncClient() as client:
-        res = await client.get(f'{FLASK_API}/api/worldviews/list', timeout=10)
+        res = await client.get(f'{FLASK_API}/api/worlds/list', timeout=10)
+        return res.json() if res.status_code == 200 else []
+
+async def _get_worldviews(world_id):
+    if not world_id:
+        return []
+    async with httpx.AsyncClient() as client:
+        res = await client.get(
+            f'{FLASK_API}/api/worldviews/list',
+            params={'world_id': world_id, 'page': 1, 'page_size': 50},
+            timeout=10,
+        )
         return res.json() if res.status_code == 200 else []
 
 def _find_doc_by_id(docs, doc_id):
@@ -76,18 +87,33 @@ async def lore_db_page():
     ui.add_head_html('<script src="https://d3js.org/d3.v7.min.js"></script>')
 
     # 状态
-    worldviews = await _get_worldviews()
+    worlds = await _get_worlds()
+    world_options = {world['world_id']: f"{world.get('name', world['world_id'])} ({world['world_id']})" for world in worlds}
+    current_world = next(iter(world_options), None)
+    worldviews = await _get_worldviews(current_world)
     wv_options = {wv['worldview_id']: wv['name'] for wv in worldviews}
-    default_wv = next(iter(wv_options)) if wv_options else 'default_wv'
+    default_wv = next(iter(wv_options), None)
     
     current_wv = default_wv
-    all_docs = await _fetch_lore(current_wv)
+    all_docs = await _fetch_lore(current_world, current_wv) if current_world and current_wv else []
     tree_format = build_tree_data(all_docs)
-    state = {'selected_doc': None, 'all_docs': all_docs, 'current_wv': current_wv}
+    state = {'selected_doc': None, 'all_docs': all_docs, 'current_world': current_world, 'current_wv': current_wv}
+
+    async def update_world(new_world):
+        state['current_world'] = new_world
+        next_worldviews = await _get_worldviews(new_world)
+        next_options = {wv['worldview_id']: wv['name'] for wv in next_worldviews}
+        state['current_wv'] = next(iter(next_options), None)
+        wv_select.options = next_options
+        wv_select.value = state['current_wv']
+        wv_select.update()
+        state['all_docs'] = await _fetch_lore(state['current_world'], state['current_wv']) if state['current_wv'] else []
+        tree.nodes = build_tree_data(state['all_docs'])
+        detail_container.refresh(None)
 
     async def update_wv(new_wv):
         state['current_wv'] = new_wv
-        state['all_docs'] = await _fetch_lore(new_wv)
+        state['all_docs'] = await _fetch_lore(state['current_world'], new_wv)
         tree.nodes = build_tree_data(state['all_docs'])
         detail_container.refresh(None)
 
@@ -98,9 +124,11 @@ async def lore_db_page():
                 ui.label('浏览、编辑或删除设定库中的条目。').classes('text-slate-400 text-sm')
             
             with ui.row().classes('items-center gap-4 bg-slate-800/60 p-2 rounded-lg border border-slate-700'):
+                ui.label('当前世界:').classes('text-slate-400 text-xs font-bold')
+                world_select = ui.select(world_options, value=current_world, on_change=lambda e: update_world(e.value)).props('dark dense borderless').classes('min-w-[220px] text-cyan-400')
                 ui.label('当前世界观:').classes('text-slate-400 text-xs font-bold')
                 wv_select = ui.select(wv_options, value=current_wv, on_change=lambda e: update_wv(e.value)).props('dark dense borderless').classes('min-w-[150px] text-cyan-400')
-                ui.button(icon='download', on_click=lambda: ui.download(f'{FLASK_API}/api/lore/export/opml?worldview_id={state["current_wv"]}')).props('flat color="slate-400" size="sm"').tooltip('导出备份 (OPML)')
+                ui.button(icon='download', on_click=lambda: ui.download(f'{FLASK_API}/api/lore/export/opml?world_id={state["current_world"]}&worldview_id={state["current_wv"]}&page=1&page_size=50')).props('flat color="slate-400" size="sm"').tooltip('导出备份 (OPML)')
 
         with ui.tabs().classes('w-full') as tabs:
             tab_tree = ui.tab('分类浏览', icon='account_tree')
@@ -146,7 +174,7 @@ async def lore_db_page():
                                 if semantic_toggle.value:
                                     try:
                                         async with httpx.AsyncClient() as client:
-                                            res = await client.post(f'{FLASK_API}/api/search', json={'query': query, 'worldview_id': state['current_wv']}, timeout=10)
+                                            res = await client.post(f'{FLASK_API}/api/search', json={'query': query, 'world_id': state['current_world'], 'worldview_id': state['current_wv']}, timeout=10)
                                             if res.status_code == 200:
                                                 filtered = res.json()
                                             else:
@@ -215,7 +243,11 @@ async def lore_db_page():
                         
                         try:
                             async with httpx.AsyncClient() as client:
-                                res = await client.get(f'{FLASK_API}/api/lore/entity-graph/all?worldview_id={wv_id}', timeout=10)
+                                res = await client.get(
+                                    f'{FLASK_API}/api/lore/entity-graph/all',
+                                    params={'world_id': state['current_world'], 'worldview_id': wv_id, 'page': 1, 'page_size': 50},
+                                    timeout=10,
+                                )
                                 if res.status_code == 200:
                                     data = res.json()
                                     if not data['nodes']:
@@ -322,7 +354,11 @@ async def lore_db_page():
                         wv_id = state['current_wv']
                         try:
                             async with httpx.AsyncClient() as client:
-                                res = await client.get(f'{FLASK_API}/api/lore/mindmap?worldview_id={wv_id}', timeout=10)
+                                res = await client.get(
+                                    f'{FLASK_API}/api/lore/mindmap',
+                                    params={'world_id': state['current_world'], 'worldview_id': wv_id, 'page': 1, 'page_size': 50},
+                                    timeout=10,
+                                )
                                 if res.status_code == 200:
                                     safe_md = res.text.replace('`', '\\`').replace('$', '\\$')
                                     mm_html.content = f"""
@@ -374,12 +410,12 @@ async def lore_db_page():
             async with httpx.AsyncClient() as client:
                 res = await client.post(f'{FLASK_API}/api/archive/update', json={
                     'id': doc_id, 'type': doc_type, 'content': new_content, 'name': new_name,
-                    'worldview_id': state['current_wv'], 'outline_id': outline_id
+                    'world_id': state['current_world'], 'worldview_id': state['current_wv'], 'outline_id': outline_id
                 }, timeout=10)
                 if res.status_code == 200:
                     ui.notify(f'"{new_name}" 保存成功！', type='positive')
                     dialog.close()
-                    state['all_docs'] = await _fetch_lore(state['current_wv'])
+                    state['all_docs'] = await _fetch_lore(state['current_world'], state['current_wv'])
                     doc = _find_doc_by_id(state['all_docs'], doc_id)
                     if doc: detail_container.refresh(doc)
                     tree.nodes = build_tree_data(state['all_docs'])
@@ -407,12 +443,12 @@ async def lore_db_page():
             async with httpx.AsyncClient() as client:
                 res = await client.request('DELETE', f'{FLASK_API}/api/archive/delete', json={
                     'id': doc_id, 'type': doc_type,
-                    'worldview_id': state['current_wv'], 'outline_id': outline_id
+                    'world_id': state['current_world'], 'worldview_id': state['current_wv'], 'outline_id': outline_id
                 }, timeout=10)
                 if res.status_code == 200:
                     ui.notify(f'已删除 "{name}"', type='warning')
                     dialog.close()
-                    state['all_docs'] = await _fetch_lore(state['current_wv'])
+                    state['all_docs'] = await _fetch_lore(state['current_world'], state['current_wv'])
                     detail_container.refresh(None)
                     tree.nodes = build_tree_data(state['all_docs'])
                 else:

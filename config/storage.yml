@@ -1,0 +1,5 @@
+MONGO_URI: mongodb://localhost:27017/
+MONGO_DB_NAME: pga_worldview
+CHROMA_COLLECTION_NAME: pga_worldview_v1
+DB_PATH: data
+

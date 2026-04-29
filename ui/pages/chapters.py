@@ -11,7 +11,7 @@ from app_api import get_all_lore_items
 from src.common.lore_utils import get_db_path
 from ui.layout import page_layout
 
-FLASK_API = 'http://localhost:5005'
+FLASK_API = 'http://localhost:5006'
 
 async def get_chapters(oid=None, wid=None):
     async with httpx.AsyncClient() as client:
@@ -24,8 +24,8 @@ async def get_chapters(oid=None, wid=None):
 
 @ui.page('/chapters')
 async def chapters_page():
-    # Session state for current project
-    state = {'outline_id': 'default'}
+    # Session state initialization
+    state = {}
     
     # Fetch projects for the dropdown
     async def get_project_options():
@@ -42,6 +42,10 @@ async def chapters_page():
         return {}
 
     project_options = await get_project_options()
+    
+    # Session state for current project
+    initial_oid = next(iter(project_options)) if project_options else None
+    state['outline_id'] = initial_oid
     
     with page_layout():
         with ui.row().classes('w-full items-center justify-between mb-4'):
@@ -96,11 +100,7 @@ async def chapters_page():
                                     ui.button(icon='delete', on_click=lambda c=chapter: confirm_delete(c)).props('flat round color="negative" size="sm"').tooltip('废止')
         
         # Initial render
-        if project_options:
-            initial_oid = next(iter(project_options))
-            await refresh_list(initial_oid)
-        else:
-            refresh_list(None)
+        refresh_list(initial_oid)
 
     # --- Dialogs ---
     def open_write_dialog():

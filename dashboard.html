@@ -676,20 +676,50 @@
                         <div class="text-[10px] bg-cyan-500/10 text-cyan-400 px-2 py-1 rounded-md border border-cyan-500/20">FALLBACK TIER 3</div>
                     </div>
                     
-                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 bg-black/20 p-6 rounded-3xl border border-slate-800">
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-8 bg-black/20 p-6 rounded-3xl border border-slate-800">
                         <div class="space-y-2">
                             <label class="text-xs text-slate-400 font-semibold uppercase tracking-wider">默认模型提供商</label>
                             <select id="config-global-provider" class="w-full bg-slate-900 border border-slate-700/50 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-500 transition-all">
+                                <option value="ollama">Ollama (Local)</option>
                                 <option value="openai">OpenAI (Direct/Proxy)</option>
                                 <option value="deepseek">DeepSeek Official</option>
                                 <option value="siliconflow">SiliconFlow Pro (R1/V3)</option>
                                 <option value="anthropic">Anthropic (Claude)</option>
-                                <option value="google">Google Gemini</option>
+                                <option value="gemini">Google Gemini</option>
                             </select>
                         </div>
                         <div class="space-y-2">
                             <label class="text-xs text-slate-400 font-semibold uppercase tracking-wider">默认模型 ID</label>
                             <input type="text" id="config-global-model" placeholder="e.g. gpt-4o, deepseek-chat" class="w-full bg-slate-900 border border-slate-700/50 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-500 transition-all">
+                        </div>
+                        <div class="space-y-2">
+                            <label class="text-xs text-slate-400 font-semibold uppercase tracking-wider">可用 LLM 模型列表</label>
+                            <input type="text" id="config-llm-models" placeholder="gemma4:e2b, llama3.1:8b" class="w-full bg-slate-900 border border-slate-700/50 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-500 transition-all">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-3 gap-8 bg-black/20 p-6 rounded-3xl border border-slate-800">
+                        <div class="space-y-2">
+                            <label class="text-xs text-slate-400 font-semibold uppercase tracking-wider">Embedding 提供商</label>
+                            <select id="config-embedding-provider" class="w-full bg-slate-900 border border-slate-700/50 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-500 transition-all">
+                                <option value="ollama">Ollama</option>
+                                <option value="gemini">Google Gemini</option>
+                            </select>
+                        </div>
+                        <div class="space-y-2">
+                            <label class="text-xs text-slate-400 font-semibold uppercase tracking-wider">Ollama Embedding 模型</label>
+                            <input type="text" id="config-ollama-embedding-model" placeholder="embeddinggemma" class="w-full bg-slate-900 border border-slate-700/50 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-500 transition-all">
+                        </div>
+                        <div class="space-y-2">
+                            <label class="text-xs text-slate-400 font-semibold uppercase tracking-wider">Embedding 模型列表</label>
+                            <input type="text" id="config-embedding-models" placeholder="embeddinggemma, nomic-embed-text" class="w-full bg-slate-900 border border-slate-700/50 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-500 transition-all">
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-8 bg-black/20 p-6 rounded-3xl border border-slate-800">
+                        <div class="space-y-2">
+                            <label class="text-xs text-slate-400 font-semibold uppercase tracking-wider">Ollama Base URL</label>
+                            <input type="text" id="config-ollama-base-url" placeholder="http://localhost:11434/v1" class="w-full bg-slate-900 border border-slate-700/50 rounded-xl px-4 py-3 text-sm focus:outline-none focus:border-cyan-500 transition-all">
                         </div>
                     </div>
                 </div>
@@ -2679,10 +2709,27 @@
                 
                 // Global
                 const providerSelect = document.getElementById('config-global-provider');
-                if (providerSelect) providerSelect.value = config.LLM_PROVIDER || 'openai';
+                if (providerSelect) providerSelect.value = config.LLM_PROVIDER || 'ollama';
                 
                 const modelInput = document.getElementById('config-global-model');
-                if (modelInput) modelInput.value = config.LLM_MODEL || '';
+                if (modelInput) modelInput.value = config.DEFAULT_MODEL || config.LLM_MODEL || '';
+
+                const llmProviderConfig = (config.LLM_MODELS || {})[config.LLM_PROVIDER || 'ollama'] || {};
+                const llmModelsInput = document.getElementById('config-llm-models');
+                if (llmModelsInput) llmModelsInput.value = (llmProviderConfig.models || [config.DEFAULT_MODEL || config.LLM_MODEL || '']).filter(Boolean).join(', ');
+
+                const embeddingProvider = document.getElementById('config-embedding-provider');
+                if (embeddingProvider) embeddingProvider.value = config.EMBEDDING_PROVIDER || 'ollama';
+
+                const embeddingModel = document.getElementById('config-ollama-embedding-model');
+                if (embeddingModel) embeddingModel.value = config.DEFAULT_EMBEDDING_MODEL || config.OLLAMA_EMBEDDING_MODEL || 'embeddinggemma';
+
+                const embeddingProviderConfig = (config.EMBEDDING_MODELS || {})[config.EMBEDDING_PROVIDER || 'ollama'] || {};
+                const embeddingModelsInput = document.getElementById('config-embedding-models');
+                if (embeddingModelsInput) embeddingModelsInput.value = (embeddingProviderConfig.models || [config.DEFAULT_EMBEDDING_MODEL || config.OLLAMA_EMBEDDING_MODEL || 'embeddinggemma']).filter(Boolean).join(', ');
+
+                const ollamaBaseUrl = document.getElementById('config-ollama-base-url');
+                if (ollamaBaseUrl) ollamaBaseUrl.value = config.OLLAMA_BASE_URL || 'http://localhost:11434/v1';
                 
                 // Agents
                 renderAgentConfigGrid(config.AGENT_MODELS || {});
@@ -2770,11 +2817,12 @@
                             <label class="text-[10px] text-slate-500 uppercase">Provider (可选)</label>
                             <select data-agent="${agent.id}" data-type="provider" class="agent-config-input w-full bg-black/40 border border-slate-700/50 rounded-xl px-3 py-2 text-xs focus:border-${agent.color}-500 focus:outline-none transition-all">
                                 <option value="">使用全局默认</option>
+                                <option value="ollama" ${config.provider === 'ollama' ? 'selected' : ''}>Ollama</option>
                                 <option value="openai" ${config.provider === 'openai' ? 'selected' : ''}>OpenAI</option>
                                 <option value="deepseek" ${config.provider === 'deepseek' ? 'selected' : ''}>DeepSeek Official</option>
                                 <option value="siliconflow" ${config.provider === 'siliconflow' ? 'selected' : ''}>SiliconFlow</option>
                                 <option value="anthropic" ${config.provider === 'anthropic' ? 'selected' : ''}>Anthropic</option>
-                                <option value="google" ${config.provider === 'google' ? 'selected' : ''}>Google Gemini</option>
+                                <option value="gemini" ${config.provider === 'gemini' || config.provider === 'google' ? 'selected' : ''}>Google Gemini</option>
                             </select>
                         </div>
                         <div class="space-y-1">
@@ -2791,19 +2839,55 @@
 
         function resetConfigForm() {
             if (originalConfig) {
-                document.getElementById('config-global-provider').value = originalConfig.LLM_PROVIDER || 'openai';
-                document.getElementById('config-global-model').value = originalConfig.LLM_MODEL || '';
+                document.getElementById('config-global-provider').value = originalConfig.LLM_PROVIDER || 'ollama';
+                document.getElementById('config-global-model').value = originalConfig.DEFAULT_MODEL || originalConfig.LLM_MODEL || '';
+                document.getElementById('config-llm-models').value = (((originalConfig.LLM_MODELS || {})[originalConfig.LLM_PROVIDER || 'ollama'] || {}).models || [originalConfig.DEFAULT_MODEL || originalConfig.LLM_MODEL || '']).filter(Boolean).join(', ');
+                document.getElementById('config-embedding-provider').value = originalConfig.EMBEDDING_PROVIDER || 'ollama';
+                document.getElementById('config-ollama-embedding-model').value = originalConfig.DEFAULT_EMBEDDING_MODEL || originalConfig.OLLAMA_EMBEDDING_MODEL || 'embeddinggemma';
+                document.getElementById('config-embedding-models').value = (((originalConfig.EMBEDDING_MODELS || {})[originalConfig.EMBEDDING_PROVIDER || 'ollama'] || {}).models || [originalConfig.DEFAULT_EMBEDDING_MODEL || originalConfig.OLLAMA_EMBEDDING_MODEL || 'embeddinggemma']).filter(Boolean).join(', ');
+                document.getElementById('config-ollama-base-url').value = originalConfig.OLLAMA_BASE_URL || 'http://localhost:11434/v1';
                 renderAgentConfigGrid(originalConfig.AGENT_MODELS || {});
                 if (typeof showFloatingStatus === 'function') showFloatingStatus("已重置为上次保存的状态", "info");
             }
         }
 
         async function saveLLMConfig() {
+            const parseModelList = (value, fallback) => {
+                const models = value.split(',').map(item => item.trim()).filter(Boolean);
+                if (fallback && !models.includes(fallback)) models.unshift(fallback);
+                return models;
+            };
+            const provider = document.getElementById('config-global-provider').value;
+            const model = document.getElementById('config-global-model').value;
+            const embeddingProvider = document.getElementById('config-embedding-provider').value;
+            const embeddingModel = document.getElementById('config-ollama-embedding-model').value || 'embeddinggemma';
+            const ollamaBaseUrl = document.getElementById('config-ollama-base-url').value || 'http://localhost:11434/v1';
             const config = {
+                ...(originalConfig || {}),
+                DEFAULT_MODEL_MAP: { ...((originalConfig || {}).DEFAULT_MODEL_MAP || {}) },
+                LLM_MODELS: { ...((originalConfig || {}).LLM_MODELS || {}) },
+                EMBEDDING_MODELS: { ...((originalConfig || {}).EMBEDDING_MODELS || {}) },
                 LLM_PROVIDER: document.getElementById('config-global-provider').value,
-                LLM_MODEL: document.getElementById('config-global-model').value,
+                DEFAULT_MODEL: model,
+                EMBEDDING_PROVIDER: embeddingProvider,
+                DEFAULT_EMBEDDING_MODEL: embeddingModel,
+                OLLAMA_EMBEDDING_MODEL: embeddingModel,
+                OLLAMA_BASE_URL: ollamaBaseUrl,
                 AGENT_MODELS: {}
             };
+            config.DEFAULT_MODEL_MAP[provider] = model;
+            config.LLM_MODELS[provider] = {
+                ...(((originalConfig || {}).LLM_MODELS || {})[provider] || {}),
+                default: model,
+                models: parseModelList(document.getElementById('config-llm-models').value, model)
+            };
+            if (provider === 'ollama') config.LLM_MODELS[provider].base_url = ollamaBaseUrl;
+            config.EMBEDDING_MODELS[embeddingProvider] = {
+                ...(((originalConfig || {}).EMBEDDING_MODELS || {})[embeddingProvider] || {}),
+                default: embeddingModel,
+                models: parseModelList(document.getElementById('config-embedding-models').value, embeddingModel)
+            };
+            if (embeddingProvider === 'ollama') config.EMBEDDING_MODELS[embeddingProvider].base_url = ollamaBaseUrl;
             
             document.querySelectorAll('.agent-config-input').forEach(input => {
                 const agentId = input.dataset.agent;

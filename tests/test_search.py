@@ -1,14 +1,9 @@
 from src.common.config_utils import load_config
+from src.common.lore_utils import get_embedding_function
 import sys
-import os
 
 # 1. Check Config
 config = load_config()
-google_key = config.get("GOOGLE_API_KEY")
-
-if not google_key:
-    print("[ERROR] No API key found in config.json")
-    sys.exit(1)
 
 import time
 import datetime
@@ -16,18 +11,16 @@ def log(msg):
     print(f"[{datetime.datetime.now().strftime('%H:%M:%S')}] {msg}", flush=True)
 
 try:
-    from langchain_google_genai import GoogleGenerativeAIEmbeddings
     from langchain_chroma import Chroma
     import chromadb
 
-    log(f"Testing search with key: {google_key[:8]}...")
+    log(
+        f"Testing search with embedding provider: {config.get('EMBEDDING_PROVIDER', 'ollama')} "
+        f"({config.get('OLLAMA_EMBEDDING_MODEL', 'embeddinggemma')})"
+    )
     
     log("Initializing Embeddings...")
-    embeddings = GoogleGenerativeAIEmbeddings(
-        model="models/gemini-embedding-001", 
-        google_api_key=google_key, 
-        task_type="retrieval_query"
-    )
+    embeddings = get_embedding_function(task_type="retrieval_query")
     
     log("Connecting to ChromaDB Client...")
     chroma_client = chromadb.PersistentClient(path="./chroma_db")

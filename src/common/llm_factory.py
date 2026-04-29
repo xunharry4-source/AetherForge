@@ -64,7 +64,7 @@ class UsageTrackingCallbackHandler(BaseCallbackHandler):
 
 def get_llm(json_mode: bool = False, agent_name: str = "unknown"):
     """
-    根据 config.json 中的配置返回对应的 LLM 实例。
+    根据模块化配置返回对应的 LLM 实例。
     优先级: Agent 专属配置 > Provider 默认配置 > 系统全局默认
     """
     config = load_config()
@@ -97,7 +97,7 @@ def get_llm(json_mode: bool = False, agent_name: str = "unknown"):
         from .lore_utils import _key_manager
         key = _key_manager.get_key()
         if not key:
-            raise ValueError("GOOGLE_API_KEYS missing in config.json")
+            raise ValueError("GOOGLE_API_KEYS missing in config/secrets.yml or environment")
         
         args = {
             "model": model_name,
@@ -117,7 +117,7 @@ def get_llm(json_mode: bool = False, agent_name: str = "unknown"):
         base_url = config.get("OPENAI_BASE_URL")
         
         if not api_key:
-            raise ValueError("OPENAI_API_KEY missing in config.json")
+            raise ValueError("OPENAI_API_KEY missing in config/secrets.yml or environment")
             
         return ChatOpenAI(
             model=model_name,

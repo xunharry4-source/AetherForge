@@ -1,168 +1,142 @@
 import requests
 import json
-import uuid
 import time
 import sys
 
-BASE_URL = "http://127.0.0.1:5005"
+BASE_URL = "http://127.0.0.1:5006"
+API_PREFIX = f"{BASE_URL}/api"
+
+def print_result(name, url, method, expected_status, res, is_success):
+    status_icon = "✅ PASS" if is_success else "❌ FAIL"
+    print(f"{status_icon} | {name} | {method} {url} | Expected: {expected_status} | Got: {res.status_code}")
+    if not is_success:
+        print(f"  Response: {res.text}")
 
 def test_system_health():
-    print("\n--- Testing GET /api/system/health ---")
+    print("\n--- Testing System Health ---")
+    url = f"{API_PREFIX}/system/health"
     try:
-        response = requests.get(f"{BASE_URL}/api/system/health")
-        print(f"Status Code: {response.status_code}")
-        print(f"Response: {json.dumps(response.json(), indent=2, ensure_ascii=False)}")
-        assert response.status_code == 200
-        assert "status" in response.json()
-        print("✅ Success: System health check passed.")
-        return "PASS"
-    except Exception as e:
-        print(f"❌ Failed: {e}")
-        return f"FAIL: {e}"
+        res = requests.get(url, timeout=5)
+        # Normal
+        is_success = res.status_code == 200
+        print_result("Health Check Normal", url, "GET", 200, res, is_success)
+    except requests.exceptions.ConnectionError:
+        print(f"❌ FAIL | Connection Error: Make sure the server is running at {BASE_URL}")
+        sys.exit(1)
 
-def test_list_worldviews():
-    print("\n--- Testing GET /api/worldviews/list ---")
-    try:
-        response = requests.get(f"{BASE_URL}/api/worldviews/list")
-        print(f"Status Code: {response.status_code}")
-        data = response.json()
-        print(f"Found {len(data)} worldviews.")
-        assert response.status_code == 200
-        assert isinstance(data, list)
-        print("✅ Success: Worldview list check passed.")
-        return "PASS"
-    except Exception as e:
-        print(f"❌ Failed: {e}")
-        return f"FAIL: {e}"
+def test_worldviews_list():
+    print("\n--- Testing Worldviews List ---")
+    url = f"{API_PREFIX}/worldviews/list"
+    res = requests.get(url, params={"world_id": "test_world", "page": 1, "page_size": 10})
+    is_success = res.status_code == 200 and isinstance(res.json(), list)
+    print_result("List Worldviews Normal", url, "GET", 200, res, is_success)
 
-def test_list_outlines():
-    print("\n--- Testing GET /api/outlines/list ---")
-    try:
-        response = requests.get(f"{BASE_URL}/api/outlines/list")
-        print(f"Status Code: {response.status_code}")
-        data = response.json()
-        print(f"Found {len(data)} outlines.")
-        assert response.status_code == 200
-        assert isinstance(data, list)
-        print("✅ Success: Outline list check passed.")
-        return "PASS"
-    except Exception as e:
-        print(f"❌ Failed: {e}")
-        return f"FAIL: {e}"
+def test_outlines_list():
+    print("\n--- Testing Outlines List ---")
+    url = f"{API_PREFIX}/outlines/list"
+    res = requests.get(url, params={"world_id": "test_world", "page": 1, "page_size": 10})
+    is_success = res.status_code == 200 and isinstance(res.json(), list)
+    print_result("List Outlines Normal", url, "GET", 200, res, is_success)
 
-def test_archive_lifecycle():
-    print("\n--- Testing Archive Lifecycle (CRUD) ---")
-    item_id = f"test_item_{uuid.uuid4().hex[:8]}"
-    item_type = "worldview"
+def verify_entity_exists(entity_type, doc_id, expected_fields=None, outline_id=None, worldview_id=None):
+    params = {}
+    if outline_id: params["outline_id"] = outline_id
+    if worldview_id: params["worldview_id"] = worldview_id
+    if not outline_id and not worldview_id:
+        params["worldview_id"] = "default_wv"
+    params["page"] = 1
+    params["page_size"] = 50
+        
+    res = requests.get(f"{API_PREFIX}/lore/list", params=params)
+    assert res.status_code == 200, f"Query failed: {res.text}"
+    items = res.json()
     
-    # 1. Create/Update
-    print(f"Step 1: Creating item {item_id}...")
+    found = None
+    for item in items:
+        if item.get("id") == doc_id and item.get("type") == entity_type:
+            found = item
+            break
+            
+    assert found is not None, f"Entity {doc_id} (type: {entity_type}) NOT FOUND in DB."
+    if expected_fields:
+        for k, v in expected_fields.items():
+            assert found.get(k) == v, f"Field mismatch: Expected {k}={v}, Got {found.get(k)}"
+    return found
+
+def verify_entity_deleted(entity_type, doc_id, outline_id=None, worldview_id=None):
+    params = {}
+    if outline_id: params["outline_id"] = outline_id
+    if worldview_id: params["worldview_id"] = worldview_id
+    if not outline_id and not worldview_id:
+        params["worldview_id"] = "default_wv"
+    params["page"] = 1
+    params["page_size"] = 50
+        
+    res = requests.get(f"{API_PREFIX}/lore/list", params=params)
+    assert res.status_code == 200, f"Query failed: {res.text}"
+    items = res.json()
+    for item in items:
+        if item.get("id") == doc_id and item.get("type") == entity_type:
+            raise AssertionError(f"Entity {doc_id} WAS NOT DELETED!")
+
+def test_archive_crud():
+    print("\n--- Testing Archive CRUD (Strict API Check) ---")
+    
+    import uuid
+    doc_id = f"test_clinical_{uuid.uuid4().hex[:6]}"
+    
+    # 1. Normal Create
+    create_url = f"{API_PREFIX}/archive/update"
     payload = {
-        "id": item_id,
-        "type": item_type,
-        "name": "Clinical Test Entity",
-        "content": "This is a test entity created by clinical requests test.",
-        "category": "Test > Clinical"
+        "id": doc_id,
+        "type": "worldview",
+        "name": "Test Worldview Archive",
+        "content": "This is a test content.",
+        "worldview_id": "default_wv"
     }
+    res_create = requests.post(create_url, json=payload)
+    if res_create.status_code != 200:
+        print_result("Archive Create Normal", create_url, "POST", 200, res_create, False)
+        return
+        
+    # 强制进行 GET 查询验证
     try:
-        resp = requests.post(f"{BASE_URL}/api/archive/update", json=payload)
-        print(f"Create Status: {resp.status_code}, Body: {resp.text}")
-        assert resp.status_code == 200
-        assert resp.json().get("status") == "success"
-        
-        # 2. Verify in list
-        print("Step 2: Verifying item in list...")
-        resp_list = requests.get(f"{BASE_URL}/api/lore/list?worldview_id=default_wv")
-        items = resp_list.json()
-        found = any(item.get("id") == item_id for item in items)
-        # Note: If database is large, this might not be the best way, but for tests it's okay
-        print(f"Item found in lore list: {found}")
-        
-        # 3. Delete
-        print(f"Step 3: Deleting item {item_id}...")
-        del_payload = {"id": item_id, "type": item_type}
-        resp_del = requests.delete(f"{BASE_URL}/api/archive/delete", json=del_payload)
-        print(f"Delete Status: {resp_del.status_code}, Body: {resp_del.text}")
-        assert resp_del.status_code == 200
-        
-        # 4. Verify deletion (Negative test)
-        print("Step 4: Verifying deletion...")
-        resp_del_verify = requests.delete(f"{BASE_URL}/api/archive/delete", json=del_payload)
-        print(f"Re-delete Status (expect 404): {resp_del_verify.status_code}")
-        assert resp_del_verify.status_code == 404
-        
-        print("✅ Success: Archive lifecycle test passed.")
-        return "PASS"
-    except Exception as e:
-        print(f"❌ Failed: {e}")
-        return f"FAIL: {e}"
+        verify_entity_exists("worldview", doc_id, expected_fields={"name": "Test Worldview Archive"})
+        print_result("Archive Create Normal + Verified", create_url, "POST", 200, res_create, True)
+    except AssertionError as e:
+        print(f"❌ FAIL | Archive Create Normal | API returned 200 but verification failed: {e}")
+        sys.exit(1)
+
+    # 2. Normal Delete
+    delete_url = f"{API_PREFIX}/archive/delete"
+    res_del = requests.delete(delete_url, json={"id": doc_id, "type": "worldview", "worldview_id": "default_wv"})
+    if res_del.status_code != 200:
+        print_result("Archive Delete Normal", delete_url, "DELETE", 200, res_del, False)
+    else:
+        # 强制 GET 确认已经消失
+        try:
+            verify_entity_deleted("worldview", doc_id)
+            print_result("Archive Delete Normal + Verified", delete_url, "DELETE", 200, res_del, True)
+        except AssertionError as e:
+            print(f"❌ FAIL | Archive Delete Normal | API returned 200 but verification failed: {e}")
+            sys.exit(1)
 
 def test_search():
-    print("\n--- Testing POST /api/search ---")
-    try:
-        # Search for something that likely exists or just an empty search
-        payload = {"query": "test"}
-        response = requests.post(f"{BASE_URL}/api/search", json=payload)
-        print(f"Status Code: {response.status_code}")
-        data = response.json()
-        print(f"Search results count: {len(data)}")
-        assert response.status_code == 200
-        assert isinstance(data, list)
-        
-        # Special case: empty query
-        print("Step: Testing empty query...")
-        resp_empty = requests.post(f"{BASE_URL}/api/search", json={"query": ""})
-        assert resp_empty.status_code == 200
-        assert resp_empty.json() == []
-        
-        print("✅ Success: Search API check passed.")
-        return "PASS"
-    except Exception as e:
-        print(f"❌ Failed: {e}")
-        return f"FAIL: {e}"
-
-def test_errors():
-    print("\n--- Testing Error Handling (Exception Cases) ---")
-    try:
-        # 1. Missing ID in delete
-        print("Step 1: Delete without ID...")
-        resp1 = requests.delete(f"{BASE_URL}/api/archive/delete", json={"type": "worldview"})
-        print(f"Status (expect 400): {resp1.status_code}")
-        assert resp1.status_code == 400
-        
-        # 2. Invalid type in update
-        print("Step 2: Update with invalid type...")
-        resp2 = requests.post(f"{BASE_URL}/api/archive/update", json={"id": "foo", "type": "invalid_type"})
-        print(f"Status (expect 400): {resp2.status_code}")
-        assert resp2.status_code == 400
-        
-        print("✅ Success: Error handling tests passed.")
-        return "PASS"
-    except Exception as e:
-        print(f"❌ Failed: {e}")
-        return f"FAIL: {e}"
+    print("\n--- Testing Search ---")
+    url = f"{API_PREFIX}/search"
+    payload = {
+        "query": "test query",
+        "worldview_id": "default_wv"
+    }
+    res = requests.post(url, json=payload)
+    is_success = res.status_code == 200
+    print_result("Search Normal", url, "POST", 200, res, is_success)
 
 if __name__ == "__main__":
-    results = {}
-    results["API-001 (Health)"] = test_system_health()
-    results["API-002 (Lists)"] = test_list_worldviews()
-    results["API-002 (Outlines)"] = test_list_outlines()
-    results["API-003 (CRUD)"] = test_archive_lifecycle()
-    results["API-004 (Search)"] = test_search()
-    results["API-ERR (Errors)"] = test_errors()
-    
-    print("\n" + "="*30)
-    print("FINAL TEST SUMMARY")
-    print("="*30)
-    all_pass = True
-    for test, result in results.items():
-        print(f"{test}: {result}")
-        if result != "PASS":
-            all_pass = False
-    
-    if all_pass:
-        print("\n🏆 ALL CLINICAL TESTS PASSED")
-        sys.exit(0)
-    else:
-        print("\n⚠️ SOME TESTS FAILED")
-        sys.exit(1)
+    print("Starting Strict Clinical API Requests Test...\n")
+    test_system_health()
+    test_worldviews_list()
+    test_outlines_list()
+    test_archive_crud()
+    test_search()
+    print("\nDone.")

@@ -8,11 +8,9 @@ import {
   Menu as MenuIcon, 
   Dashboard as DashboardIcon,
   Book as BookIcon,
-  Psychology as BrainIcon,
   LibraryBooks as LoreIcon,
-  Edit as DraftIcon,
-  Settings as SettingsIcon,
-  ChevronLeft as ChevronLeftIcon
+  ChevronLeft as ChevronLeftIcon,
+  AccountTree as AccountTreeIcon
 } from '@mui/icons-material';
 import { useNavigate, Outlet } from 'react-router-dom';
 import { theme } from '../theme';
@@ -24,13 +22,11 @@ export const MainLayout: React.FC = () => {
   const navigate = useNavigate();
 
   const menuItems = [
-    { text: '仪表盘', icon: <DashboardIcon />, path: '/' },
-    { text: '实体草案', icon: <DraftIcon />, path: '/drafts' },
-    { text: '世界观库', icon: <LoreIcon />, path: '/lore' },
-    { text: '小说大纲', icon: <BookIcon />, path: '/outlines' },
-    { text: '万象大脑', icon: <BrainIcon />, path: '/brain', color: '#9c27b0' },
-    { text: '设置', icon: <SettingsIcon />, path: '/settings' },
-  ];
+    { text: '世界层级', icon: <DashboardIcon />, path: '/worlds' },
+    { text: '星际图谱', icon: <AccountTreeIcon />, path: '/visualizer' },
+    { text: '世界观库 (Worldview)', icon: <LoreIcon />, path: '/lore' },
+    { text: '大纲/章节流', icon: <BookIcon />, path: '/outlines' },
+  ] as { text: string; icon: JSX.Element; path: string; color?: string }[];
 
   const handleDrawerToggle = () => {
     setOpen(!open);

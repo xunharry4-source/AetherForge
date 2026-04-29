@@ -11,8 +11,11 @@
   "dependencies": {
     "@emotion/react": "^11.11.0",
     "@emotion/styled": "^11.11.0",
+    "@mantine/core": "^7.17.8",
+    "@mantine/hooks": "^7.17.8",
     "@mui/icons-material": "^5.11.0",
     "@mui/material": "^5.11.0",
+    "@tabler/icons-react": "^3.41.1",
     "@xyflow/react": "^12.0.0",
     "axios": "^1.4.0",
     "react": "^18.2.0",

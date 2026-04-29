@@ -24,7 +24,7 @@ async def brain_page():
                 try:
                     async with httpx.AsyncClient() as client:
                         # 暂时使用默认 ID，实际可从 URL 或全局上下文获取
-                        resp = await client.post('http://localhost:5005/api/agent/brain', json={
+                        resp = await client.post('http://localhost:5006/api/agent/brain', json={
                             "worldview_id": "default_wv",
                             "outline_id": None
                         }, timeout=60.0)

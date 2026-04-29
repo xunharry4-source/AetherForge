@@ -48,7 +48,7 @@ def index_page():
             import httpx
             try:
                 async with httpx.AsyncClient() as client:
-                    resp = await client.get('http://localhost:5005/api/system/health', timeout=1.0)
+                    resp = await client.get('http://localhost:5006/api/system/health', timeout=1.0)
                     if resp.status_code == 200:
                         data = resp.json()
                         backend_label.text = f"运行中 ({data.get('status', 'OK')})"
