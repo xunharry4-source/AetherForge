@@ -91,3 +91,172 @@
 2026-04-29 12:29:42,225 - novel_agent.api - WARNING - [API] Delete 400: Missing id(only_id) or type(None)
 2026-04-29 12:29:42,467 - novel_agent.api - INFO - [API] Delete request received: {'id': 'test_lore_7af03b', 'type': 'worldview', 'worldview_id': 'default_wv'}
 2026-04-29 12:29:42,484 - novel_agent.lore - INFO - [CHROMA DELETE] Successfully deleted vector for doc_id: test_lore_7af03b in None
+2026-04-29 12:41:08,795 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 12:41:08,815 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:00:57,025 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:00:57,071 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:00:58,403 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:00:58,427 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:01:00,213 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:01:00,224 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:01:28,568 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:01:28,590 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:01:47,203 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:01:47,222 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:01:51,141 - novel_agent.api - INFO - [API] Delete request received: {'id': 'test_lore_52431b', 'type': 'worldview', 'worldview_id': 'default_wv'}
+2026-04-29 13:01:51,177 - novel_agent.lore - INFO - [CHROMA DELETE] Successfully deleted vector for doc_id: test_lore_52431b in None
+2026-04-29 13:01:51,590 - novel_agent.api - INFO - [API] Delete request received: {'id': 'non_existent_id', 'type': 'worldview', 'worldview_id': 'default_wv'}
+2026-04-29 13:01:51,650 - novel_agent.api - INFO - [API] Delete request received: {'id': 'missing_type'}
+2026-04-29 13:01:51,653 - novel_agent.api - WARNING - [API] Delete 400: Missing id(missing_type) or type(None)
+2026-04-29 13:04:24,373 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:04:24,458 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:04:28,979 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:04:28,999 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:10:07,873 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:10:07,896 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:10:08,975 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:10:08,988 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:10:10,257 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:10:10,265 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:12:11,627 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:12:11,644 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:12:12,350 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:12:12,358 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:12:13,585 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:12:13,594 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:12:50,840 - novel_agent.api - INFO - [API] Delete request received: {'id': None, 'type': 'outline', 'world_id': 'world_default', 'worldview_id': 'default_wv'}
+2026-04-29 13:12:50,840 - novel_agent.api - WARNING - [API] Delete 400: Missing id(None) or type(outline)
+2026-04-29 13:13:13,840 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:13:13,849 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:13:20,468 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:13:20,479 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:13:21,179 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:13:21,188 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:13:22,544 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:13:22,553 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:14:46,651 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:14:46,666 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:14:55,607 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:14:55,617 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:23:03,924 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:23:03,937 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:23:04,603 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:23:04,610 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:23:05,744 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:23:05,751 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:24:48,127 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:24:48,140 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:25:16,859 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:25:16,873 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:27:38,513 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:27:38,531 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:27:46,375 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:27:46,385 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:28:04,315 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:28:04,324 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:32:02,263 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:32:02,278 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:32:27,708 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:32:27,718 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:33:34,056 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:33:34,068 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:33:41,797 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:33:41,805 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:34:04,181 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:34:04,190 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 13:34:12,859 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 13:34:12,871 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 14:52:52,377 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 14:52:52,393 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 14:56:37,238 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 14:56:37,253 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 14:56:54,914 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 14:56:54,928 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 15:46:01,928 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 15:46:01,958 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 16:01:26,360 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 16:01:26,386 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 16:02:45,188 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'worldview_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 16:04:09,259 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'worldview_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 16:06:08,380 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'worldview_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 16:06:58,272 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'worldview_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 16:07:36,430 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'worldview_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 16:07:58,048 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'novel_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 16:08:21,138 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'novel_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 16:08:47,901 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'novel_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 16:09:17,461 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 16:09:42,631 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 16:10:04,634 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 16:10:30,786 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 16:11:07,357 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 16:11:41,306 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 17:55:06,590 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 17:55:06,606 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 17:58:01,189 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 17:58:01,203 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 18:08:40,633 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 18:08:40,649 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 18:34:40,709 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 18:34:40,727 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 18:35:19,873 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 18:35:19,887 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 18:35:51,855 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'world_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 18:37:37,860 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 18:37:37,874 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 18:37:56,363 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'world_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 18:41:30,998 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 18:41:31,013 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 18:41:53,014 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'world_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 18:52:00,576 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 18:52:00,589 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 18:52:20,735 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'world_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 18:53:41,863 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'world_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 18:53:52,225 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'world_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 18:54:01,909 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'world_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 18:54:11,801 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'worldview_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 18:54:23,750 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'worldview_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 18:55:22,986 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'world_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 18:55:37,042 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'world_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 18:55:47,581 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'world_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 18:55:58,152 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'worldview_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 18:56:10,063 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'worldview_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 18:56:20,372 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'worldview_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 18:56:31,523 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'worldview_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 18:56:40,324 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'worldview_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 18:56:53,847 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'worldview_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 18:57:04,831 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'novel_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 18:57:20,895 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'novel_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 18:58:32,136 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 18:58:32,150 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 18:58:52,522 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'world_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 18:59:32,028 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'world_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 18:59:54,162 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'world_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 19:00:06,023 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'worldview_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 19:00:23,913 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'worldview_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 19:00:35,491 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'worldview_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 19:01:03,558 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'worldview_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 19:01:18,090 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'worldview_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 19:01:36,215 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'worldview_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 19:01:50,716 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'novel_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 19:02:13,332 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'novel_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 19:02:30,120 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'novel_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 19:03:09,918 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'novel_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 19:03:28,630 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'novel_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 19:03:50,393 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'novel_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 19:04:04,932 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 19:04:35,457 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 19:04:51,455 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 19:05:07,977 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 19:05:20,390 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 19:05:49,146 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'outline_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 19:06:05,019 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 19:06:32,522 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 19:06:55,704 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 19:07:17,168 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 19:07:36,460 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 19:07:59,449 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'chapter_review_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 19:08:44,112 - novel_agent.llm_factory - INFO - Instantiating LLM for agent 'world_agent' using model 'gemma4:e2b' (Provider: ollama)
+2026-04-29 20:23:23,040 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 20:23:23,060 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
+2026-04-29 20:24:22,903 - novel_agent.api - INFO - sentry-sdk initialized successfully.
+2026-04-29 20:24:22,920 - novel_agent.api - INFO - prometheus-flask-exporter initialized.

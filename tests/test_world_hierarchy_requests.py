@@ -66,7 +66,9 @@ def create_full_chain(suffix: str):
     )
     assert world.get("status") == "success", world
     world_id = world["world_id"]
-    assert get_world(world_id)["name"] == world_name
+    queried_world = get_world(world_id)
+    assert queried_world["name"] == world_name, queried_world
+    assert queried_world["summary"] == world_summary, queried_world
 
     worldview_name = f"Strict Worldview {suffix}"
     worldview = assert_json_response(
@@ -79,6 +81,7 @@ def create_full_chain(suffix: str):
     assert worldview.get("status") == "success", worldview
     worldview_id = worldview["worldview_id"]
     queried_worldview = get_worldview(worldview_id)
+    assert queried_worldview["name"] == worldview_name, queried_worldview
     assert queried_worldview["world_id"] == world_id, queried_worldview
 
     novel_name = f"Strict Novel {suffix}"
@@ -92,6 +95,7 @@ def create_full_chain(suffix: str):
     assert novel.get("status") == "success", novel
     novel_id = novel["novel_id"]
     queried_novel = get_novel(novel_id)
+    assert queried_novel["name"] == novel_name, queried_novel
     assert queried_novel["world_id"] == world_id, queried_novel
     assert "worldview_id" not in queried_novel, queried_novel
 
@@ -177,7 +181,9 @@ def test_world_hierarchy_lifecycle():
                 timeout=TIMEOUT,
             )
         )
-        assert get_world(chain["world_id"])["name"] == updated_world_name
+        queried_world = get_world(chain["world_id"])
+        assert queried_world["name"] == updated_world_name, queried_world
+        assert queried_world["summary"] == f"World Updated Summary {suffix}", queried_world
 
         updated_worldview_name = f"Strict Worldview Updated {suffix}"
         assert_json_response(
@@ -187,7 +193,9 @@ def test_world_hierarchy_lifecycle():
                 timeout=TIMEOUT,
             )
         )
-        assert get_worldview(chain["worldview_id"])["name"] == updated_worldview_name
+        queried_worldview = get_worldview(chain["worldview_id"])
+        assert queried_worldview["name"] == updated_worldview_name, queried_worldview
+        assert queried_worldview["summary"] == f"WV Updated {suffix}", queried_worldview
 
         updated_novel_name = f"Strict Novel Updated {suffix}"
         assert_json_response(
@@ -197,7 +205,9 @@ def test_world_hierarchy_lifecycle():
                 timeout=TIMEOUT,
             )
         )
-        assert get_novel(chain["novel_id"])["name"] == updated_novel_name
+        queried_novel = get_novel(chain["novel_id"])
+        assert queried_novel["name"] == updated_novel_name, queried_novel
+        assert queried_novel["summary"] == f"Novel Updated {suffix}", queried_novel
 
         updated_outline_title = f"Strict Outline Updated {suffix}"
         updated_outline_content = f"Outline Updated Content {suffix}"

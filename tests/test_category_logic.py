@@ -1,7 +1,7 @@
 import os
 import json
 
-# Manual extraction of the logic from worldview_agent_langgraph.py for verification
+# Manual extraction of category detection logic for verification.
 def detect_category(query):
     query_lower = query.lower()
     # 1. 历史优先级 (通常具有最显著的特征词)

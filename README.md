@@ -157,6 +157,7 @@ docker-compose up -d
 - **真实 API 测试**：执行 `API_BASE_URL=http://127.0.0.1:5006 .venv/bin/python tests/test_world_hierarchy_requests.py`，测试会用 `requests` 调真实接口并在每次增删改后查询验证结果。
 - **真实 Agent 工作流测试**：执行 `API_BASE_URL=http://127.0.0.1:5006 .venv/bin/python tests/test_hierarchy_agent_workflow_requests.py`，测试会验证独立 Agent、审查节点、人工迭代、批准写库以及后续查询结果。
 - **真实大纲章节工作流测试**：执行 `API_BASE_URL=http://127.0.0.1:5006 .venv/bin/python tests/test_outline_chapter_workflow_requests.py`，测试会验证状态查询必须带条件和分页，并检查章节真实写入、更新和查询结果。
+- **自动生成后端 API 文档**：执行 `.venv/bin/python scripts/generate_api_docs.py`，脚本会从 `app_api.py` 的 Flask `@app.route` 自动生成 [docs/api.md](./docs/api.md) 和 [docs/openapi.json](./docs/openapi.json)。生成过程只解析源码 AST，不导入 Flask app、不连接 MongoDB、不执行业务处理器。
 
 ---
 

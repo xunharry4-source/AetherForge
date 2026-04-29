@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   ReactFlow,
   Background,
@@ -13,15 +14,12 @@ import {
   Alert,
   Badge,
   Button,
-  Checkbox,
-  Code,
   Divider,
   FileInput,
   Grid,
   Group,
   JsonInput,
   Modal,
-  NumberInput,
   Paper,
   ScrollArea,
   Select,
@@ -34,7 +32,6 @@ import {
 } from '@mantine/core';
 import {
   IconAlertTriangle,
-  IconCheck,
   IconEdit,
   IconFileImport,
   IconPlayerPlay,
@@ -78,6 +75,13 @@ type Worldview = {
   summary?: string;
 };
 
+type Novel = {
+  novel_id: string;
+  world_id: string;
+  name: string;
+  summary?: string;
+};
+
 type WorkflowLog = {
   id: string;
   level: 'info' | 'success' | 'error';
@@ -85,26 +89,24 @@ type WorkflowLog = {
   payload?: unknown;
 };
 
-type HumanMode = 'outline-review' | 'chapter-review' | 'delete-outline' | 'delete-chapter';
+type HumanMode = 'delete-outline' | 'delete-chapter';
 
 const toOptions = <T extends Record<string, string>>(items: T[], valueKey: keyof T, labelKey: keyof T) =>
   items.map((item) => ({ value: String(item[valueKey]), label: String(item[labelKey]) }));
 
-const formatStructuredFeedback = (payload: Record<string, unknown>) =>
-  `人工表单反馈:\n${JSON.stringify(payload, null, 2)}`;
-
 export const OutlineChapterWorkflow: React.FC = () => {
+  const navigate = useNavigate();
   const [worlds, setWorlds] = useState<World[]>([]);
   const [worldviews, setWorldviews] = useState<Worldview[]>([]);
+  const [novels, setNovels] = useState<Novel[]>([]);
   const [outlines, setOutlines] = useState<Outline[]>([]);
   const [chapters, setChapters] = useState<LoreItem[]>([]);
   const [selectedWorldId, setSelectedWorldId] = useState('');
   const [selectedWorldview, setSelectedWorldview] = useState('');
+  const [selectedNovel, setSelectedNovel] = useState<string | null>(null);
   const [selectedOutline, setSelectedOutline] = useState<string | null>(null);
   const [selectedChapter, setSelectedChapter] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [runningAgent, setRunningAgent] = useState(false);
-  const [threadId, setThreadId] = useState('');
   const [logs, setLogs] = useState<WorkflowLog[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [lastResponse, setLastResponse] = useState<unknown>(null);
@@ -117,7 +119,6 @@ export const OutlineChapterWorkflow: React.FC = () => {
   const [outlineForm, setOutlineForm] = useState({
     name: '',
     summary: '',
-    query: '',
     updatedName: '',
     updatedContent: '',
   });
@@ -125,18 +126,10 @@ export const OutlineChapterWorkflow: React.FC = () => {
     id: '',
     title: '',
     content: '',
-    target: '第一章',
-    targetWords: 1800,
     updatedTitle: '',
     updatedContent: '',
   });
   const [humanForm, setHumanForm] = useState({
-    decision: 'revise',
-    issueTypes: '',
-    feedback: '',
-    priority: 'medium',
-    saveAsVersion: true,
-    triggerNextRound: false,
     deleteReason: '',
   });
 
@@ -156,9 +149,11 @@ export const OutlineChapterWorkflow: React.FC = () => {
       } else {
         setSelectedWorldId('');
         setSelectedWorldview('');
+        setSelectedNovel(null);
         setSelectedOutline(null);
         setSelectedChapter(null);
         setWorldviews([]);
+        setNovels([]);
         setOutlines([]);
         setChapters([]);
       }
@@ -167,6 +162,7 @@ export const OutlineChapterWorkflow: React.FC = () => {
       setError(message);
       setWorlds([]);
       setWorldviews([]);
+      setNovels([]);
       setOutlines([]);
       setChapters([]);
       addLog({ level: 'error', message: '加载世界列表失败', payload: message });
@@ -178,9 +174,11 @@ export const OutlineChapterWorkflow: React.FC = () => {
   const loadState = useCallback(async () => {
     if (!selectedWorldId) {
       setWorldviews([]);
+      setNovels([]);
       setOutlines([]);
       setChapters([]);
       setSelectedWorldview('');
+      setSelectedNovel(null);
       setSelectedOutline(null);
       setSelectedChapter(null);
       return;
@@ -198,17 +196,23 @@ export const OutlineChapterWorkflow: React.FC = () => {
         })
         : Promise.resolve({ data: { status: 'success', world_id: selectedWorldId, chapters: [] } });
 
-      const [worldviewRes, outlineRes, stateRes] = await Promise.all([
+      const [worldviewRes, novelRes, outlineRes, stateRes] = await Promise.all([
         api.listWorldviews({ world_id: selectedWorldId, page: 1, page_size: 50 }),
+        api.listNovels({ world_id: selectedWorldId, page: 1, page_size: 50 }),
         api.listOutlines({ world_id: selectedWorldId, worldview_id: selectedWorldview || undefined, page: 1, page_size: 50 }),
         stateRequest,
       ]);
       const nextWorldviews = worldviewRes.data as Worldview[];
+      const nextNovels = novelRes.data as Novel[];
       const nextOutlines = outlineRes.data as Outline[];
       const nextChapters = (stateRes.data?.chapters || []) as LoreItem[];
       const invalidWorldviews = nextWorldviews.filter((worldview) => worldview.world_id !== selectedWorldId);
       if (invalidWorldviews.length > 0) {
         throw new Error(`接口返回了非当前世界的世界观: ${invalidWorldviews.map((item) => item.worldview_id).join(', ')}`);
+      }
+      const invalidNovels = nextNovels.filter((novel) => novel.world_id !== selectedWorldId);
+      if (invalidNovels.length > 0) {
+        throw new Error(`接口返回了非当前世界的小说: ${invalidNovels.map((item) => item.novel_id).join(', ')}`);
       }
       const invalidOutlines = nextOutlines.filter((outline) => outline.world_id !== selectedWorldId);
       if (invalidOutlines.length > 0) {
@@ -219,6 +223,7 @@ export const OutlineChapterWorkflow: React.FC = () => {
         throw new Error(`接口返回了非当前世界的章节: ${invalidChapters.map((item) => item.id).join(', ')}`);
       }
       setWorldviews(nextWorldviews);
+      setNovels(nextNovels);
       setOutlines(nextOutlines);
       setChapters(nextChapters);
       setSelectedWorldview((current) => {
@@ -228,6 +233,11 @@ export const OutlineChapterWorkflow: React.FC = () => {
       setSelectedOutline((current) => {
         if (nextOutlines.some((outline) => outline.outline_id === current)) return current;
         return nextOutlines[0]?.outline_id || null;
+      });
+      setSelectedNovel((current) => {
+        if (nextNovels.some((novel) => novel.novel_id === current)) return current;
+        const outlineNovel = nextOutlines.find((outline) => outline.outline_id === selectedOutline)?.novel_id;
+        return outlineNovel || nextNovels[0]?.novel_id || null;
       });
       setSelectedChapter((current) => {
         if (nextChapters.some((chapter) => chapter.id === current)) return current;
@@ -239,6 +249,7 @@ export const OutlineChapterWorkflow: React.FC = () => {
       setError(message);
       addLog({ level: 'error', message: '加载工作流状态失败', payload: message });
       setWorldviews([]);
+      setNovels([]);
       setOutlines([]);
       setChapters([]);
     } finally {
@@ -268,10 +279,74 @@ export const OutlineChapterWorkflow: React.FC = () => {
     () => worldviews.find((worldview) => worldview.worldview_id === selectedWorldview),
     [worldviews, selectedWorldview],
   );
+  const selectedNovelRecord = useMemo(
+    () => novels.find((novel) => novel.novel_id === selectedNovel),
+    [novels, selectedNovel],
+  );
   const selectedChapterRecord = useMemo(
     () => chapters.find((chapter) => chapter.id === selectedChapter),
     [chapters, selectedChapter],
   );
+
+  const openWorkflow = useCallback((type: 'novel' | 'outline' | 'chapter', action: 'create' | 'update') => {
+    const params = new URLSearchParams({
+      type,
+      action,
+      world_id: selectedWorldId,
+    });
+    if (selectedWorldview) params.set('worldview_id', selectedWorldview);
+    if (selectedNovel) params.set('novel_id', selectedNovel);
+    if (selectedOutline) params.set('outline_id', selectedOutline);
+
+    if (type === 'novel') {
+      if (action === 'create') {
+        params.set('name', outlineForm.name || 'Agent 新小说');
+        params.set('summary', outlineForm.summary || '');
+      } else if (selectedNovelRecord) {
+        params.set('id', selectedNovelRecord.novel_id);
+        params.set('name', outlineForm.updatedName || selectedNovelRecord.name || '');
+        params.set('summary', outlineForm.updatedContent || selectedNovelRecord.summary || '');
+      }
+    }
+    if (type === 'outline') {
+      if (action === 'create') {
+        params.set('name', outlineForm.name || 'Agent 新大纲');
+        params.set('summary', outlineForm.summary || '');
+      } else if (selectedOutlineRecord) {
+        params.set('id', selectedOutlineRecord.outline_id);
+        params.set('name', outlineForm.updatedName || selectedOutlineRecord.title || '');
+        params.set('summary', outlineForm.updatedContent || selectedOutlineRecord.summary || '');
+      }
+    }
+    if (type === 'chapter') {
+      if (action === 'create') {
+        params.set('name', chapterForm.title || 'Agent 新章节');
+        params.set('content', chapterForm.content || '');
+      } else if (selectedChapterRecord) {
+        params.set('id', selectedChapterRecord.id);
+        params.set('name', chapterForm.updatedTitle || selectedChapterRecord.name || '');
+        params.set('content', chapterForm.updatedContent || selectedChapterRecord.content || '');
+      }
+    }
+    navigate(`/workflow/${type}?${params.toString()}`);
+  }, [
+    chapterForm.content,
+    chapterForm.title,
+    chapterForm.updatedContent,
+    chapterForm.updatedTitle,
+    navigate,
+    outlineForm.name,
+    outlineForm.summary,
+    outlineForm.updatedContent,
+    outlineForm.updatedName,
+    selectedChapterRecord,
+    selectedNovel,
+    selectedNovelRecord,
+    selectedOutline,
+    selectedOutlineRecord,
+    selectedWorldId,
+    selectedWorldview,
+  ]);
   const dbGraph = useMemo(() => {
     const nodes: Node[] = [];
     const edges: Edge[] = [];
@@ -557,67 +632,6 @@ export const OutlineChapterWorkflow: React.FC = () => {
     }
   };
 
-  const runAgentStream = async (agentType: 'outline' | 'writing') => {
-    const query = agentType === 'outline' ? outlineForm.query : selectedOutline || '';
-    if (!selectedWorldId || !query.trim()) {
-      setError(agentType === 'outline' ? '大纲 Agent 必须选择世界并填写创作需求' : '写作 Agent 必须选择世界并先选择大纲');
-      return;
-    }
-    setRunningAgent(true);
-    setError(null);
-    const nextThreadId = `${agentType}_${Date.now()}`;
-    setThreadId(nextThreadId);
-    try {
-      const response = await fetch(`${apiClient.defaults.baseURL}/api/agent/query`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          query,
-          agent_type: agentType,
-          world_id: selectedWorldId,
-          worldview_id: selectedWorldview,
-          outline_id: selectedOutline || undefined,
-          current_act: chapterForm.target,
-          thread_id: nextThreadId,
-        }),
-      });
-      if (!response.ok) {
-        throw new Error(`Agent API ${response.status}: ${await response.text()}`);
-      }
-      if (!response.body) throw new Error('Agent API 未返回 NDJSON 流');
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
-        lines.filter(Boolean).forEach((line) => {
-          const event = JSON.parse(line);
-          if (event.type === 'error') {
-            throw new Error(event.error || 'Agent 流返回错误');
-          }
-          if (event.type === 'node_update') {
-            addLog({ level: 'info', message: `${event.node}: ${event.status_message}`, payload: event });
-          }
-          if (event.type === 'final_state') {
-            setLastResponse(event);
-            addLog({ level: 'success', message: `${agentType} Agent 完成，等待人工表单审核`, payload: event });
-          }
-        });
-      }
-      await loadState();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      addLog({ level: 'error', message: `${agentType} Agent 运行失败`, payload: message });
-    } finally {
-      setRunningAgent(false);
-    }
-  };
-
   const openImportModal = () => {
     setImportWorldviewId(selectedWorldview || worldviews[0]?.worldview_id || '');
     setImportFile(null);
@@ -676,43 +690,6 @@ export const OutlineChapterWorkflow: React.FC = () => {
     }
   };
 
-  const submitHumanForm = async () => {
-    if (!humanForm.feedback.trim()) {
-      setError('人工审核表单必须填写反馈说明');
-      return;
-    }
-    if (!threadId) {
-      setError('当前没有可恢复的 Agent thread_id，不能伪造人工审核提交');
-      return;
-    }
-    const payload = {
-      mode: humanMode,
-      decision: humanForm.decision,
-      issue_types: humanForm.issueTypes.split(',').map((item) => item.trim()).filter(Boolean),
-      feedback: humanForm.feedback,
-      priority: humanForm.priority,
-      save_as_version: humanForm.saveAsVersion,
-      trigger_next_round: humanForm.triggerNextRound,
-      target_words: chapterForm.targetWords,
-    };
-    setError(null);
-    try {
-      const response = await api.resumeAgent({
-        agent_type: humanMode === 'chapter-review' ? 'writing' : 'outline',
-        thread_id: threadId,
-        feedback: formatStructuredFeedback(payload),
-      });
-      setLastResponse(response.data);
-      addLog({ level: 'success', message: '人工表单反馈已提交到 Agent resume 接口', payload });
-      setHumanMode(null);
-      await loadState();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      setError(message);
-      addLog({ level: 'error', message: '人工表单提交失败', payload: message });
-    }
-  };
-
   return (
     <Stack gap="md">
       <Group justify="space-between" align="flex-end">
@@ -757,6 +734,7 @@ export const OutlineChapterWorkflow: React.FC = () => {
                   onChange={(value) => {
                     setSelectedWorldId(value || '');
                     setSelectedWorldview('');
+                    setSelectedNovel(null);
                     setSelectedOutline(null);
                     setSelectedChapter(null);
                     setOutlines([]);
@@ -777,6 +755,22 @@ export const OutlineChapterWorkflow: React.FC = () => {
                   }}
                   disabled={!selectedWorldId}
                   searchable
+                />
+                <Select
+                  label="小说"
+                  data={novels.map((novel) => ({
+                    value: novel.novel_id,
+                    label: `${novel.name} (${novel.novel_id})`,
+                  }))}
+                  value={selectedNovel}
+                  onChange={(value) => {
+                    setSelectedNovel(value);
+                    setSelectedOutline(null);
+                    setSelectedChapter(null);
+                  }}
+                  disabled={!selectedWorldId}
+                  searchable
+                  clearable
                 />
                 <Select
                   label="小说大纲/项目"
@@ -838,20 +832,40 @@ export const OutlineChapterWorkflow: React.FC = () => {
           <Paper p="md" radius="sm" withBorder>
             <Tabs defaultValue="outline">
               <Tabs.List grow>
+                <Tabs.Tab value="novel">小说</Tabs.Tab>
                 <Tabs.Tab value="outline">大纲</Tabs.Tab>
                 <Tabs.Tab value="chapter">章节</Tabs.Tab>
-                <Tabs.Tab value="agent">Agent</Tabs.Tab>
               </Tabs.List>
+
+              <Tabs.Panel value="novel" pt="md">
+                <Stack gap="sm">
+                  <TextInput label="小说名称" value={outlineForm.name} onChange={(event) => setOutlineForm({ ...outlineForm, name: event.currentTarget.value })} />
+                  <Textarea label="小说简介" minRows={3} value={outlineForm.summary} onChange={(event) => setOutlineForm({ ...outlineForm, summary: event.currentTarget.value })} />
+                  <Button leftSection={<IconPlayerPlay size={16} />} onClick={() => openWorkflow('novel', 'create')} disabled={!selectedWorldId}>创建小说工作流</Button>
+                  <Divider />
+                  <Select
+                    label="待修改小说"
+                    data={novels.map((novel) => ({ value: novel.novel_id, label: `${novel.name} (${novel.novel_id})` }))}
+                    value={selectedNovel}
+                    onChange={setSelectedNovel}
+                    disabled={!selectedWorldId}
+                    searchable
+                  />
+                  <TextInput label="修改后名称" value={outlineForm.updatedName} onChange={(event) => setOutlineForm({ ...outlineForm, updatedName: event.currentTarget.value })} />
+                  <Textarea label="修改后简介" minRows={3} value={outlineForm.updatedContent} onChange={(event) => setOutlineForm({ ...outlineForm, updatedContent: event.currentTarget.value })} />
+                  <Button leftSection={<IconEdit size={16} />} variant="light" onClick={() => openWorkflow('novel', 'update')} disabled={!selectedWorldId || !selectedNovel}>修改小说工作流</Button>
+                </Stack>
+              </Tabs.Panel>
 
               <Tabs.Panel value="outline" pt="md">
                 <Stack gap="sm">
                   <TextInput label="新大纲名称" value={outlineForm.name} onChange={(event) => setOutlineForm({ ...outlineForm, name: event.currentTarget.value })} />
                   <Textarea label="新大纲摘要" minRows={3} value={outlineForm.summary} onChange={(event) => setOutlineForm({ ...outlineForm, summary: event.currentTarget.value })} />
-                  <Button leftSection={<IconCheck size={16} />} onClick={createOutline} disabled={!selectedWorldId || !selectedWorldview}>创建并查询验证</Button>
+                  <Button leftSection={<IconPlayerPlay size={16} />} onClick={() => openWorkflow('outline', 'create')} disabled={!selectedWorldId || !selectedNovel}>创建大纲工作流</Button>
                   <Divider />
                   <TextInput label="修改后标题" value={outlineForm.updatedName} onChange={(event) => setOutlineForm({ ...outlineForm, updatedName: event.currentTarget.value })} />
                   <Textarea label="修改后内容" minRows={4} value={outlineForm.updatedContent} onChange={(event) => setOutlineForm({ ...outlineForm, updatedContent: event.currentTarget.value })} />
-                  <Button leftSection={<IconEdit size={16} />} variant="light" onClick={updateOutline} disabled={!selectedWorldId || !selectedOutline}>修改并查询验证</Button>
+                  <Button leftSection={<IconEdit size={16} />} variant="light" onClick={() => openWorkflow('outline', 'update')} disabled={!selectedWorldId || !selectedOutline}>修改大纲工作流</Button>
                   <Button leftSection={<IconTrash size={16} />} color="red" variant="light" onClick={() => setHumanMode('delete-outline')} disabled={!selectedWorldId || !selectedOutline}>删除表单</Button>
                 </Stack>
               </Tabs.Panel>
@@ -861,29 +875,15 @@ export const OutlineChapterWorkflow: React.FC = () => {
                   <TextInput label="章节 ID（留空自动生成）" value={chapterForm.id} onChange={(event) => setChapterForm({ ...chapterForm, id: event.currentTarget.value })} />
                   <TextInput label="章节标题" value={chapterForm.title} onChange={(event) => setChapterForm({ ...chapterForm, title: event.currentTarget.value })} />
                   <Textarea label="章节正文" minRows={5} value={chapterForm.content} onChange={(event) => setChapterForm({ ...chapterForm, content: event.currentTarget.value })} />
-                  <Button leftSection={<IconCheck size={16} />} onClick={saveChapter} disabled={!selectedWorldId || !selectedOutline}>保存并查询验证</Button>
+                  <Button leftSection={<IconPlayerPlay size={16} />} onClick={() => openWorkflow('chapter', 'create')} disabled={!selectedWorldId || !selectedOutline}>创建章节工作流</Button>
                   <Divider />
                   <TextInput label="修改后标题" value={chapterForm.updatedTitle} onChange={(event) => setChapterForm({ ...chapterForm, updatedTitle: event.currentTarget.value })} />
                   <Textarea label="修改后正文" minRows={4} value={chapterForm.updatedContent} onChange={(event) => setChapterForm({ ...chapterForm, updatedContent: event.currentTarget.value })} />
-                  <Button leftSection={<IconEdit size={16} />} variant="light" onClick={updateChapter} disabled={!selectedWorldId || !selectedChapter}>修改并查询验证</Button>
+                  <Button leftSection={<IconEdit size={16} />} variant="light" onClick={() => openWorkflow('chapter', 'update')} disabled={!selectedWorldId || !selectedChapter}>修改章节工作流</Button>
                   <Button leftSection={<IconTrash size={16} />} color="red" variant="light" onClick={() => setHumanMode('delete-chapter')} disabled={!selectedWorldId || !selectedChapter}>删除表单</Button>
                 </Stack>
               </Tabs.Panel>
 
-              <Tabs.Panel value="agent" pt="md">
-                <Stack gap="sm">
-                  <Textarea label="大纲 Agent 创作需求" minRows={4} value={outlineForm.query} onChange={(event) => setOutlineForm({ ...outlineForm, query: event.currentTarget.value })} />
-                  <Button leftSection={<IconPlayerPlay size={16} />} loading={runningAgent} onClick={() => runAgentStream('outline')} disabled={!selectedWorldId || !selectedWorldview}>运行大纲 Agent</Button>
-                  <TextInput label="章节目标" value={chapterForm.target} onChange={(event) => setChapterForm({ ...chapterForm, target: event.currentTarget.value })} />
-                  <NumberInput label="目标字数" value={chapterForm.targetWords} min={100} step={100} onChange={(value) => setChapterForm({ ...chapterForm, targetWords: Number(value) || 0 })} />
-                  <Button leftSection={<IconPlayerPlay size={16} />} loading={runningAgent} variant="light" onClick={() => runAgentStream('writing')} disabled={!selectedWorldId || !selectedOutline}>运行章节 Agent</Button>
-                  <Group grow>
-                    <Button variant="subtle" onClick={() => setHumanMode('outline-review')} disabled={!selectedWorldId}>大纲审核表单</Button>
-                    <Button variant="subtle" onClick={() => setHumanMode('chapter-review')} disabled={!selectedWorldId}>章节审核表单</Button>
-                  </Group>
-                  <Text size="xs" c="dimmed">thread_id: {threadId || '无'}</Text>
-                </Stack>
-              </Tabs.Panel>
             </Tabs>
           </Paper>
         </Grid.Col>
@@ -896,57 +896,15 @@ export const OutlineChapterWorkflow: React.FC = () => {
 
       <Modal opened={humanMode !== null} onClose={() => setHumanMode(null)} title="人工介入表单" size="lg">
         <Stack gap="sm">
-          {humanMode?.startsWith('delete') ? (
-            <>
-              <Alert color="red" icon={<IconAlertTriangle size={18} />}>删除必须填写原因；提交后会立即查询验证是否真的删除。</Alert>
-              <Textarea
-                label="删除原因"
-                required
-                minRows={4}
-                value={humanForm.deleteReason}
-                onChange={(event) => setHumanForm({ ...humanForm, deleteReason: event.currentTarget.value })}
-              />
-              <Button color="red" onClick={humanMode === 'delete-outline' ? deleteOutline : deleteChapter}>确认删除并查询验证</Button>
-            </>
-          ) : (
-            <>
-              <TextInput
-                label="审核结论"
-                value={humanForm.decision}
-                onChange={(event) => setHumanForm({ ...humanForm, decision: event.currentTarget.value })}
-              />
-              <TextInput
-                label="问题类型"
-                value={humanForm.issueTypes}
-                onChange={(event) => setHumanForm({ ...humanForm, issueTypes: event.currentTarget.value })}
-              />
-              <Textarea
-                label="反馈说明"
-                required
-                minRows={5}
-                value={humanForm.feedback}
-                onChange={(event) => setHumanForm({ ...humanForm, feedback: event.currentTarget.value })}
-              />
-              <TextInput
-                label="优先级"
-                value={humanForm.priority}
-                onChange={(event) => setHumanForm({ ...humanForm, priority: event.currentTarget.value })}
-              />
-              <Checkbox
-                label="保存为新版本"
-                checked={humanForm.saveAsVersion}
-                onChange={(event) => setHumanForm({ ...humanForm, saveAsVersion: event.currentTarget.checked })}
-              />
-              <Checkbox
-                label="触发下一轮生成"
-                checked={humanForm.triggerNextRound}
-                onChange={(event) => setHumanForm({ ...humanForm, triggerNextRound: event.currentTarget.checked })}
-              />
-              <Alert color="blue">提交内容会序列化为结构化 JSON 文本发送到 Agent resume 接口，不会伪造成功。</Alert>
-              <Button onClick={submitHumanForm}>提交人工表单</Button>
-            </>
-          )}
-          <Code block>{threadId || '无可恢复 thread_id'}</Code>
+          <Alert color="red" icon={<IconAlertTriangle size={18} />}>删除必须填写原因；提交后会立即查询验证是否真的删除。</Alert>
+          <Textarea
+            label="删除原因"
+            required
+            minRows={4}
+            value={humanForm.deleteReason}
+            onChange={(event) => setHumanForm({ ...humanForm, deleteReason: event.currentTarget.value })}
+          />
+          <Button color="red" onClick={humanMode === 'delete-outline' ? deleteOutline : deleteChapter}>确认删除并查询验证</Button>
         </Stack>
       </Modal>
 

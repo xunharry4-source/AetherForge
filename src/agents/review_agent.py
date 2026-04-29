@@ -76,12 +76,6 @@ def execute_llm_review(db, entity_type: str, payload: Dict[str, Any]) -> Tuple[b
     Returns:
         (passed: bool, errors: list[str])
     """
-    # 针对 E2E API 测试的短路绕过：如果名称包含 Agent，直接判断为自动化测试
-    name = payload.get("name", "") or payload.get("title", "")
-    if name and "Agent " in str(name):
-        logger.info(f"Test entity detected ({name}), bypassing LLM review.")
-        return True, []
-
     logger.info(f"Executing LLM review for {entity_type}")
     
     try:

@@ -167,7 +167,7 @@ const buildFocusGraph = (root: TreeNode | null, entry: LoreEntry) => {
     nodes.push({
       id,
       position: { x: 120 + index * 230, y: 130 },
-      data: { label: part },
+      data: { label: part, name: part, path: fullPath, entries: [] },
       style: {
         background: index === ancestorParts.length - 1 ? 'rgba(0, 188, 212, 0.22)' : 'rgba(255,255,255,0.08)',
         color: '#fff',
@@ -196,7 +196,7 @@ const buildFocusGraph = (root: TreeNode | null, entry: LoreEntry) => {
   nodes.push({
     id: entryId,
     position: { x: 120 + ancestorParts.length * 230, y: 130 },
-    data: { label: `${entry.name || entry.id}\n${entry.type || 'worldview'}` },
+    data: { label: `${entry.name || entry.id}\n${entry.type || 'worldview'}`, name: entry.name || entry.id, path: pathParts, entries: [entry] },
     style: {
       background: 'rgba(156, 39, 176, 0.28)',
       color: '#fff',
@@ -228,7 +228,7 @@ const buildFocusGraph = (root: TreeNode | null, entry: LoreEntry) => {
     nodes.push({
       id,
       position: { x: 120 + ancestorParts.length * 230 + 260 + (index % 3) * 220, y: 40 + Math.floor(index / 3) * 110 },
-      data: { label: `${node.name}${node.entries.length ? ` (${node.entries.length})` : ''}` },
+      data: { label: `${node.name}${node.entries.length ? ` (${node.entries.length})` : ''}`, name: node.name, path, entries: node.entries },
       style: {
         background: 'rgba(0, 188, 212, 0.12)',
         color: '#fff',
@@ -327,6 +327,175 @@ const buildNextLevelGraph = (root: TreeNode | null, pathParts: string[], queried
   });
 
   return { nodes, edges, childCount: directChildren.length, entryCount: directEntries.length };
+};
+
+const buildChildExpansion = (
+  root: TreeNode | null,
+  pathParts: string[],
+  queriedEntries: LoreEntry[],
+  parentId: string,
+  parentPosition: { x: number; y: number },
+) => {
+  const cleanPath = pathParts.filter(Boolean);
+  const targetNode = findTreeNodeByPath(root, cleanPath);
+  const nodes: Node<VisualizerNodeData>[] = [];
+  const edges: Edge[] = [];
+
+  const directChildren = (targetNode?.children || []).slice(0, 24);
+  const childStartX = parentPosition.x - ((Math.min(directChildren.length, 6) - 1) * 190) / 2;
+  directChildren.forEach((child, index) => {
+    const childPath = [...cleanPath, child.name];
+    const childId = `node:${nodeKey(childPath)}`;
+    nodes.push({
+      id: childId,
+      position: {
+        x: childStartX + (index % 6) * 190,
+        y: parentPosition.y + 150 + Math.floor(index / 6) * 125,
+      },
+      data: {
+        label: `${child.name}${child.entries.length ? ` (${child.entries.length})` : ''}`,
+        name: child.name,
+        path: childPath,
+        entries: child.entries,
+      },
+      style: {
+        ...baseNodeStyle,
+        background: 'rgba(156, 39, 176, 0.16)',
+        fontWeight: 700,
+        width: 170,
+      },
+    });
+    edges.push({
+      id: `e-${parentId}-${childId}`,
+      source: parentId,
+      target: childId,
+      type: ConnectionLineType.SmoothStep,
+      animated: true,
+      style: { stroke: 'rgba(255,255,255,0.28)' },
+      markerEnd: { type: MarkerType.ArrowClosed, color: 'rgba(255,255,255,0.28)' },
+    });
+  });
+
+  const directPathText = cleanPath.join(' > ');
+  const directEntries = queriedEntries
+    .filter((entry) => {
+      const entryPath = entry.path || entry.category || '';
+      const entryParts = splitPath(entryPath);
+      return entryPath === directPathText || entryParts.length === cleanPath.length + 1 && entryParts.slice(0, cleanPath.length).join(' > ') === directPathText;
+    })
+    .slice(0, 16);
+
+  const entryBaseY = parentPosition.y + 150 + Math.ceil(directChildren.length / 6) * 125;
+  const entryStartX = parentPosition.x - ((Math.min(directEntries.length, 4) - 1) * 210) / 2;
+  directEntries.forEach((entry, index) => {
+    const entryId = `entry:${entry.id}`;
+    nodes.push({
+      id: entryId,
+      position: {
+        x: entryStartX + (index % 4) * 210,
+        y: entryBaseY + Math.floor(index / 4) * 120,
+      },
+      data: {
+        label: `${entry.name || entry.id}\n${entry.type}`,
+        name: entry.name || entry.id,
+        path: splitPath(entry.path || entry.category),
+        entries: [entry],
+      },
+      style: {
+        ...baseNodeStyle,
+        background: 'rgba(0, 188, 212, 0.12)',
+        width: 180,
+        whiteSpace: 'pre-line',
+      },
+    });
+    edges.push({
+      id: `e-${parentId}-${entryId}`,
+      source: parentId,
+      target: entryId,
+      type: ConnectionLineType.SmoothStep,
+      animated: true,
+      markerEnd: { type: MarkerType.ArrowClosed },
+    });
+  });
+
+  return { nodes, edges, childCount: directChildren.length, entryCount: directEntries.length };
+};
+
+const mergeById = <T extends { id: string }>(current: T[], additions: T[]) => {
+  const existing = new Set(current.map((item) => item.id));
+  return [...current, ...additions.filter((item) => !existing.has(item.id))];
+};
+
+const layoutVisibleGraph = (currentNodes: Node[], currentEdges: Edge[]) => {
+  if (currentNodes.length === 0) return currentNodes;
+
+  const nodeIds = new Set(currentNodes.map((node) => node.id));
+  const outgoing = new Map<string, string[]>();
+  const incomingCount = new Map<string, number>();
+
+  currentNodes.forEach((node) => {
+    outgoing.set(node.id, []);
+    incomingCount.set(node.id, 0);
+  });
+
+  currentEdges.forEach((edge) => {
+    if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) return;
+    outgoing.get(edge.source)?.push(edge.target);
+    incomingCount.set(edge.target, (incomingCount.get(edge.target) || 0) + 1);
+  });
+
+  const byOriginalPosition = (a: Node, b: Node) =>
+    a.position.y === b.position.y ? a.position.x - b.position.x : a.position.y - b.position.y;
+
+  const roots = currentNodes
+    .filter((node) => (incomingCount.get(node.id) || 0) === 0)
+    .sort(byOriginalPosition);
+  const queue = roots.length > 0 ? [...roots] : [currentNodes[0]];
+  const depthById = new Map<string, number>();
+
+  queue.forEach((node) => depthById.set(node.id, 0));
+  for (let index = 0; index < queue.length; index += 1) {
+    const current = queue[index];
+    const currentDepth = depthById.get(current.id) || 0;
+    (outgoing.get(current.id) || []).forEach((targetId) => {
+      if (depthById.has(targetId)) return;
+      depthById.set(targetId, currentDepth + 1);
+      const target = currentNodes.find((node) => node.id === targetId);
+      if (target) queue.push(target);
+    });
+  }
+
+  currentNodes.forEach((node) => {
+    if (!depthById.has(node.id)) {
+      depthById.set(node.id, 0);
+    }
+  });
+
+  const layers = new Map<number, Node[]>();
+  currentNodes.forEach((node) => {
+    const depth = depthById.get(node.id) || 0;
+    const layer = layers.get(depth) || [];
+    layer.push(node);
+    layers.set(depth, layer);
+  });
+
+  const orderedLayers = [...layers.entries()].sort(([a], [b]) => a - b);
+  orderedLayers.forEach(([, layer]) => layer.sort(byOriginalPosition));
+
+  const nextPositions = new Map<string, { x: number; y: number }>();
+  orderedLayers.forEach(([depth, layer]) => {
+    layer.forEach((node, index) => {
+      nextPositions.set(node.id, {
+        x: 80 + depth * 250,
+        y: 60 + index * 130,
+      });
+    });
+  });
+
+  return currentNodes.map((node) => ({
+    ...node,
+    position: nextPositions.get(node.id) || node.position,
+  }));
 };
 
 // --- Main Component ---
@@ -454,7 +623,7 @@ export const WorldviewVisualizer: React.FC = () => {
     setViewMode('graph');
   }, [setEdges, setNodes, treeData]);
 
-  const expandNode = useCallback(async (pathParts: string[]) => {
+  const expandNode = useCallback(async (pathParts: string[], sourceNode?: Node<VisualizerNodeData>) => {
     if (!selectedWorldId || pathParts.length === 0) return;
     const cleanPathParts = normalizeTreePath(treeData, pathParts);
     const displayPath = cleanPathParts.length > 0 ? cleanPathParts : [treeData?.name || pathParts[pathParts.length - 1]];
@@ -471,11 +640,18 @@ export const WorldviewVisualizer: React.FC = () => {
       if (mismatched.length > 0) {
         throw new Error(`接口返回了非当前世界的内容: ${mismatched.map((entry: LoreEntry) => entry.id).join(', ')}`);
       }
-      const { nodes: expandedNodes, edges: expandedEdges, childCount, entryCount } = buildNextLevelGraph(treeData, cleanPathParts, data);
-      setNodes(expandedNodes);
-      setEdges(expandedEdges);
+      const expansion = sourceNode
+        ? buildChildExpansion(treeData, cleanPathParts, data, sourceNode.id, sourceNode.position)
+        : buildNextLevelGraph(treeData, cleanPathParts, data);
+      if (sourceNode) {
+        setNodes((currentNodes) => mergeById(currentNodes as Node<VisualizerNodeData>[], expansion.nodes));
+        setEdges((currentEdges) => mergeById(currentEdges, expansion.edges));
+      } else {
+        setNodes(expansion.nodes);
+        setEdges(expansion.edges);
+      }
       setSelectedEntry(null);
-      setExpandedNodeLabel(`${displayPath[displayPath.length - 1]}：${childCount} 个下级 / ${entryCount} 条内容`);
+      setExpandedNodeLabel(`${displayPath[displayPath.length - 1]}：新增 ${expansion.childCount} 个下级 / ${expansion.entryCount} 条内容`);
       setSearchResults(data);
       setViewMode('graph');
     } catch (error) {
@@ -494,6 +670,11 @@ export const WorldviewVisualizer: React.FC = () => {
     setEdges(graphEdges);
     setViewMode('graph');
   }, [setEdges, setNodes, treeData]);
+
+  const autoArrangeGraph = useCallback(() => {
+    setNodes((currentNodes) => layoutVisibleGraph(currentNodes, edges));
+    setViewMode('graph');
+  }, [edges, setNodes]);
 
   useEffect(() => {
     fetchWorlds();
@@ -546,6 +727,9 @@ export const WorldviewVisualizer: React.FC = () => {
             />
             <Button variant={viewMode === 'graph' ? 'filled' : 'light'} color="cyan" onClick={showDefaultGraph}>关系图谱</Button>
             <Button variant={viewMode === 'tree' ? 'filled' : 'light'} color="cyan" onClick={() => setViewMode('tree')}>逻辑树</Button>
+            <Button leftSection={<IconBinaryTree size={16} />} variant="light" color="teal" disabled={nodes.length === 0} onClick={autoArrangeGraph}>
+              自动整理
+            </Button>
             <Tooltip label="刷新数据">
               <ActionIcon variant="light" color="cyan" size="lg" onClick={fetchData}>
                 <IconRefresh size={20} />
@@ -628,7 +812,7 @@ export const WorldviewVisualizer: React.FC = () => {
             edges={edges}
             onNodesChange={onNodesChange}
             onEdgesChange={onEdgesChange}
-            onNodeClick={(_, node) => expandNode((node.data as VisualizerNodeData).path || [])}
+            onNodeClick={(_, node) => expandNode((node.data as VisualizerNodeData).path || [], node as Node<VisualizerNodeData>)}
             fitView
             style={{ background: 'transparent' }}
           >

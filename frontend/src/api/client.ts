@@ -113,11 +113,4 @@ export const api = {
 
   getOutlineChapterState: (params: { world_id?: string; worldview_id?: string; outline_id?: string; page: number; page_size: number }) =>
     apiClient.get('/api/workflow/outline-chapter/state', { params }),
-  
-  // Agents used by the outline/chapter workflow. Persisted data is reloaded from DB-backed APIs after every call.
-  queryAgent: (data: { query: string; agent_type: string; world_id?: string; worldview_id?: string; outline_id?: string; thread_id?: string; resume_input?: string }) =>
-    apiClient.post('/api/agent/query', data),
-
-  resumeAgent: (data: { feedback: string; agent_type: string; thread_id: string }) =>
-    apiClient.post('/api/agent/feedback', data),
 };

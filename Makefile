@@ -3,13 +3,19 @@ PIP = $(PYTHON) -m pip
 SYSTEM_PYTHON = python3.12
 FRONTEND_DIR = frontend
 UI_DIR = ui
+BACKEND_PORT ?= 5006
+FRONTEND_HOST ?= 127.0.0.1
+FRONTEND_PORT ?= 5174
+LEGACY_UI_PORT ?= 8501
 
-.PHONY: help install start stop restart status clean
+.PHONY: help install check-ports start start-all start-legacy-ui stop restart status clean
 
 help:
 	@echo "Novel Agent - Management Commands:"
 	@echo "  make install  - Create venv (.venv) and install dependencies"
-	@echo "  make start    - Run backend, NiceGUI UI, and Vite frontend in foreground"
+	@echo "  make start    - Run Flask API and React/Vite frontend in foreground"
+	@echo "  make start-all - Run Flask API, legacy NiceGUI UI, and React/Vite frontend"
+	@echo "  make start-legacy-ui - Run only the legacy NiceGUI UI"
 	@echo "  make stop     - Kill background processes"
 	@echo "  make restart  - Stop and start again"
 	@echo "  make status   - Check if processes are running"
@@ -35,16 +41,44 @@ install:
 		echo "⚠️ Skipping frontend install: $(FRONTEND_DIR)/package.json not found."; \
 	fi
 
+check-ports:
+	@for port in $(PORTS); do \
+		if $(PYTHON) -c "import socket, sys; sock = socket.socket(); sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); sock.bind(('127.0.0.1', int(sys.argv[1]))); sock.close()" $$port >/dev/null 2>&1; then \
+			:; \
+		else \
+			echo "❌ Port $$port is already in use. Stop the existing process first, then run make start again."; \
+			exit 1; \
+		fi; \
+	done
+
 start:
 	@mkdir -p logs
-	@echo "🚀 Starting all services in foreground (Press Ctrl+C to stop)..."
+	@$(MAKE) check-ports PORTS="$(BACKEND_PORT) $(FRONTEND_PORT)"
+	@echo "🚀 Starting API and React frontend in foreground (Press Ctrl+C to stop)..."
+	@/bin/bash -c "EXIT_HANDLED=0; trap 'if [ \$$EXIT_HANDLED -eq 0 ]; then echo -e \"\n🛑 Stopping services...\"; EXIT_HANDLED=1; kill 0; fi' SIGINT SIGTERM EXIT; \
+		env PYTHONPATH=.:src:src/common $(PYTHON) app_api.py 2>&1 | tee logs/backend.log & echo \$$! > $(CURDIR)/.backend.pid; \
+		if [ -f \"$(FRONTEND_DIR)/package.json\" ]; then \
+			cd $(FRONTEND_DIR) && npm run dev -- --host $(FRONTEND_HOST) --port $(FRONTEND_PORT) --strictPort 2>&1 | tee ../logs/frontend.log & echo \$$! > $(CURDIR)/.frontend.pid; \
+		fi; \
+		wait"
+
+start-all:
+	@mkdir -p logs
+	@$(MAKE) check-ports PORTS="$(BACKEND_PORT) $(FRONTEND_PORT) $(LEGACY_UI_PORT)"
+	@echo "🚀 Starting API, legacy NiceGUI UI, and React frontend in foreground (Press Ctrl+C to stop)..."
 	@/bin/bash -c "EXIT_HANDLED=0; trap 'if [ \$$EXIT_HANDLED -eq 0 ]; then echo -e \"\n🛑 Stopping services...\"; EXIT_HANDLED=1; kill 0; fi' SIGINT SIGTERM EXIT; \
 		env PYTHONPATH=.:src:src/common $(PYTHON) app_api.py 2>&1 | tee logs/backend.log & echo \$$! > $(CURDIR)/.backend.pid; \
 		env PYTHONPATH=.:src:src/common $(PYTHON) $(UI_DIR)/main.py 2>&1 | tee logs/ui.log & echo \$$! > $(CURDIR)/.ui.pid; \
 		if [ -f \"$(FRONTEND_DIR)/package.json\" ]; then \
-			cd $(FRONTEND_DIR) && npm run dev 2>&1 | tee ../logs/frontend.log & echo \$$! > $(CURDIR)/.frontend.pid; \
+			cd $(FRONTEND_DIR) && npm run dev -- --host $(FRONTEND_HOST) --port $(FRONTEND_PORT) --strictPort 2>&1 | tee ../logs/frontend.log & echo \$$! > $(CURDIR)/.frontend.pid; \
 		fi; \
 		wait"
+
+start-legacy-ui:
+	@mkdir -p logs
+	@$(MAKE) check-ports PORTS="$(LEGACY_UI_PORT)"
+	@echo "🚀 Starting legacy NiceGUI UI in foreground (Press Ctrl+C to stop)..."
+	@env PYTHONPATH=.:src:src/common $(PYTHON) $(UI_DIR)/main.py 2>&1 | tee logs/ui.log
 
 stop:
 	@echo "🛑 Stopping Backend..."

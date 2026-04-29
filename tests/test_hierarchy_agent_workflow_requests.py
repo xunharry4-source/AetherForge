@@ -6,7 +6,7 @@ import requests
 
 BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:5006")
 API_PREFIX = f"{BASE_URL}/api"
-TIMEOUT = 10
+TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "180"))
 
 
 def assert_json_response(response: requests.Response, expected_status: int = 200):
@@ -41,7 +41,17 @@ def start_agent(agent_type: str, action: str, payload: dict, message: str = ""):
     assert run["agent_type"] == agent_type, run
     assert run["action"] == action, run
     assert any(node["node_id"] == "input" and node["input"]["payload"] for node in run["nodes"]), run
-    assert any(node["node_id"] == "draft" and node["output"]["payload"] for node in run["nodes"]), run
+    draft_node = next(node for node in run["nodes"] if node["node_id"] == "draft")
+    assert draft_node["output"]["payload"], run
+    assert draft_node["output"]["llm_invoked"] is True, draft_node
+    assert draft_node["output"]["raw_response"], draft_node
+    for key, value in draft_node["output"]["payload"].items():
+        if key in {"name", "summary", "content", "world_id", "worldview_id", "novel_id", "outline_id", "target_id"}:
+            assert run["pending_payload"].get(key) == value, {
+                "field": key,
+                "draft_payload": draft_node["output"]["payload"],
+                "pending_payload": run["pending_payload"],
+            }
     return run
 
 
@@ -98,13 +108,16 @@ def test_hierarchy_agent_workflow_lifecycle():
 
     try:
         world_name = f"Agent World {suffix}"
-        world_run = start_agent("world", "create", {"name": world_name, "summary": "world summary"}, "创建世界")
+        original_world_summary = "短草案：漂浮群岛。"
+        world_run = start_agent("world", "create", {"name": world_name, "summary": original_world_summary}, "创建世界并完善草案")
         assert world_run["review_required"] is False, world_run
-        world_review = next(node for node in world_run["nodes"] if node["node_id"] == "review")
-        assert world_review["status"] == "skipped", world_review
+        assert all(node["node_id"] != "review" for node in world_run["nodes"]), world_run
+        assert world_run["pending_payload"]["summary"] != original_world_summary, world_run
         world_run = approve(world_run["run_id"])
         world_id = world_run["commit_result"]["world_id"]
-        assert find_by_id(f"{API_PREFIX}/worlds/list", "world_id", world_id)["name"] == world_name
+        queried_world = find_by_id(f"{API_PREFIX}/worlds/list", "world_id", world_id)
+        assert queried_world["name"] == world_name, queried_world
+        assert queried_world["summary"] == world_run["pending_payload"]["summary"], queried_world
 
         worldview_run = start_agent(
             "worldview",

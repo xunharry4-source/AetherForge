@@ -86,17 +86,36 @@ def run_clinical_test():
     if response.status_code == 200 and doc_after is None:
         print("  ✅ 结果: 小说项目物理删除成功。")
     else:
-        print("  ❌ 结果: 小说项目物理删除失败。")
+        print(f"  ❌ 结果: 小说项目物理删除失败。返回码: {response.status_code}")
         sys.exit(1)
         
+    # --- 测试项 3: 列表查询必填项验证 (分析发现 UI 400 错误的根源) ---
+    print("\n[Case 3] 列表查询必填项严格验证")
+    print("  - 场景 A: 无参数调用 outlines/list")
+    res_no_param = requests.get(f"{BASE_URL}/api/outlines/list")
+    if res_no_param.status_code == 400:
+        print("  ✅ 验证成功: API 正确拒绝了无参数请求 (400)")
+    else:
+        print(f"  ❌ 验证失败: API 应该返回 400 但返回了 {res_no_param.status_code}")
+        sys.exit(1)
+
+    print("  - 场景 B: 仅带过滤参数不带分页参数")
+    res_no_page = requests.get(f"{BASE_URL}/api/outlines/list", params={"world_id": world_id})
+    if res_no_page.status_code == 400 and "pagination" in res_no_page.json().get("error", ""):
+        print("  ✅ 验证成功: API 正确识别分页参数缺失 (400)")
+    else:
+        print(f"  ❌ 验证失败: API 分页校验逻辑异常 {res_no_page.status_code}")
+        sys.exit(1)
+
     # 顺手删掉父世界
     requests.delete(f"{BASE_URL}/api/worlds/delete", json={"world_id": world_id, "cascade": True})
 
-    # --- 测试项 3: 异常场景 (不存在的 ID) ---
-    print("\n[Case 3] 异常场景验证 (不存在的 ID)")
+    # --- 测试项 4: 异常场景 (不存在的 ID) ---
+    print("\n[Case 4] 异常场景验证 (不存在的 ID)")
     response = requests.delete(f"{BASE_URL}/api/archive/delete", json={
         "id": "non_existent_id",
-        "type": "worldview"
+        "type": "worldview",
+        "worldview_id": "default_wv"
     })
     print(f"  - API 状态码 (预期 404): {response.status_code}")
     if response.status_code == 404:
@@ -105,8 +124,8 @@ def run_clinical_test():
         print("  ❌ 结果: 异常处理不符合预期。")
         sys.exit(1)
 
-    # --- 测试项 4: 异常场景 (缺少参数) ---
-    print("\n[Case 4] 特殊情况验证 (缺少参数)")
+    # --- 测试项 5: 异常场景 (缺少参数) ---
+    print("\n[Case 5] 特殊情况验证 (缺少参数)")
     response = requests.delete(f"{BASE_URL}/api/archive/delete", json={
         "id": "missing_type"
     })

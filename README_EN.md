@@ -84,6 +84,7 @@ Open a new terminal window:
 -   **Real API Verification**: Run `API_BASE_URL=http://127.0.0.1:5006 .venv/bin/python tests/test_world_hierarchy_requests.py`; the test uses `requests` against the live API and verifies every create/update/delete through follow-up queries.
 -   **Real Agent Workflow Verification**: Run `API_BASE_URL=http://127.0.0.1:5006 .venv/bin/python tests/test_hierarchy_agent_workflow_requests.py`; it verifies independent agents, review nodes, human iteration, approval, real writes, and follow-up queries.
 -   **Real Outline/Chapter Workflow Verification**: Run `API_BASE_URL=http://127.0.0.1:5006 .venv/bin/python tests/test_outline_chapter_workflow_requests.py`; it verifies conditional paginated state queries plus real chapter create/update/query behavior.
+-   **Generated Backend API Docs**: Run `.venv/bin/python scripts/generate_api_docs.py` to generate [docs/api.md](./docs/api.md) and [docs/openapi.json](./docs/openapi.json) from Flask `@app.route` decorators in `app_api.py`. The generator parses source AST only; it does not import the Flask app, connect to MongoDB, or execute handlers.
 
 ---
 

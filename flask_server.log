@@ -1,7 +1,0 @@
-2026-04-28 14:38:55,461 - novel_agent.api - INFO - sentry-sdk initialized successfully.
-2026-04-28 14:38:55,473 - novel_agent.api - INFO - prometheus-flask-exporter initialized.
-[WARN] langfuse-python not installed, LLM tracing disabled.
-[INFO] Prometheus metrics enabled.
- * Serving Flask app 'app_api'
- * Debug mode: off
-Operation not permitted

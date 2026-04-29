@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   ReactFlow,
   Background,
@@ -84,8 +85,8 @@ type WorldNode = {
   world_id: string;
   name: string;
   summary?: string;
-  worldviews: WorldviewNode[];
-  novels: NovelNode[];
+  worldviews?: WorldviewNode[];
+  novels?: NovelNode[];
 };
 
 type SelectedNode = {
@@ -186,6 +187,7 @@ const revisionModeOptions: Array<{ value: RevisionMode; label: string }> = [
 const stringify = (value: unknown) => JSON.stringify(value ?? {}, null, 2);
 
 export const WorldHierarchy: React.FC = () => {
+  const navigate = useNavigate();
   const [worlds, setWorlds] = useState<WorldNode[]>([]);
   const [selected, setSelected] = useState<SelectedNode>({ kind: 'root', id: 'root', label: labels.root });
   const [loading, setLoading] = useState(false);
@@ -197,16 +199,13 @@ export const WorldHierarchy: React.FC = () => {
   const [selectedWorkflowNode, setSelectedWorkflowNode] = useState<WorkflowNode | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const loadTree = useCallback(async () => {
+  const loadWorlds = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const worldResponse = await api.listWorlds();
       const nextWorlds = worldResponse.data || [];
-      const treeResponses = await Promise.all(
-        nextWorlds.map((world: WorldNode) => api.getWorldHierarchyTree({ world_id: world.world_id, page: 1, page_size: 50 })),
-      );
-      setWorlds(treeResponses.flatMap((response) => response.data?.worlds || []));
+      setWorlds(nextWorlds);
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || String(err));
     } finally {
@@ -231,9 +230,9 @@ export const WorldHierarchy: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    loadTree();
+    loadWorlds();
     loadRuns();
-  }, [loadTree, loadRuns]);
+  }, [loadWorlds, loadRuns]);
 
   const worldById = useMemo(() => new Map(worlds.map((world) => [world.world_id, world])), [worlds]);
 
@@ -290,14 +289,29 @@ export const WorldHierarchy: React.FC = () => {
   const childActions = useMemo(() => ['world'] as const, []);
 
   const openAgentDialog = (action: AgentAction, entity: Exclude<NodeKind, 'root'>) => {
+    if (action !== 'delete') {
+      const current = selected.data as WorldNode | undefined;
+      const params = new URLSearchParams({
+        type: entity,
+        action,
+        world_id: current?.world_id || worlds[0]?.world_id || 'world_default',
+      });
+      if (action === 'update' && current?.world_id) {
+        params.set('id', current.world_id);
+        params.set('name', current.name || '');
+        params.set('summary', current.summary || '');
+      }
+      navigate(`/workflow/${entity}?${params.toString()}`);
+      return;
+    }
     const current = selected.data as any;
     const nextForm: AgentForm = {
       ...emptyAgentForm,
       action,
       entity,
-      name: action === 'update' ? current?.name || current?.title || selected.label : '',
-      summary: action === 'update' ? current?.summary || '' : '',
-      content: action === 'update' ? current?.content || '' : '',
+      name: current?.name || current?.title || selected.label,
+      summary: current?.summary || '',
+      content: current?.content || '',
       message: `${actionLabel[action]}${labels[entity]}`,
       worldviewId: entity === 'outline' ? (current?.worldview_id || owningWorld?.worldviews?.[0]?.worldview_id || '') : '',
     };
@@ -380,7 +394,7 @@ export const WorldHierarchy: React.FC = () => {
       setSelectedWorkflowNode(run.nodes[run.nodes.length - 1] || null);
       await loadRuns();
       if (run.status === 'completed') {
-        await loadTree();
+        await loadWorlds();
       }
     } catch (err: any) {
       setError(err?.response?.data?.error || err?.message || String(err));
@@ -397,7 +411,7 @@ export const WorldHierarchy: React.FC = () => {
           <Text size="sm" c="dimmed">只显示世界列表；世界观、小说、大纲、章节不在此页展开。</Text>
         </Box>
         <Group gap="xs">
-          <Button leftSection={<IconRefresh size={16} />} variant="light" onClick={() => { loadTree(); loadRuns(); }}>刷新</Button>
+          <Button leftSection={<IconRefresh size={16} />} variant="light" onClick={() => { loadWorlds(); loadRuns(); }}>刷新</Button>
           {childActions.map((kind) => (
             <Button key={kind} leftSection={<IconPlayerPlay size={16} />} onClick={() => openAgentDialog('create', kind)}>
               创建{labels[kind]}
