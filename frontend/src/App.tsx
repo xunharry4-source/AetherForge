@@ -10,6 +10,9 @@ import { NovelCreate } from './pages/NovelCreate';
 import { NovelDetail } from './pages/NovelDetail';
 import { NovelOutlineManagement } from './pages/NovelOutlineManagement';
 import { NovelChapterManagement } from './pages/NovelChapterManagement';
+import { Login } from './pages/Login';
+import { UserProfile } from './pages/UserProfile';
+import { RequireAuth } from './components/RequireAuth';
 import {
   ChapterWorkflow,
   HierarchyWorkflow,
@@ -33,6 +36,16 @@ function App() {
             <Route path="worldviews" element={<WorldviewManagement />} />
             <Route path="lore" element={<LoreDB />} />
             <Route path="visualizer" element={<WorldviewVisualizer />} />
+            <Route path="login" element={<Login mode="login" />} />
+            <Route path="register" element={<Login mode="register" />} />
+            <Route
+              path="me"
+              element={
+                <RequireAuth>
+                  <UserProfile />
+                </RequireAuth>
+              }
+            />
             <Route path="novels" element={<NovelManagement />} />
             <Route path="novels/new" element={<NovelCreate />} />
             <Route path="novels/:novelId/outlines" element={<NovelOutlineManagement />} />

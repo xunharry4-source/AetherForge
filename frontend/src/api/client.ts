@@ -1,6 +1,30 @@
 import axios from 'axios';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || '';
+const AUTH_TOKEN_KEY = 'novel_agent_auth_token';
+const API_KEY_STORAGE_KEY = 'novel_agent_api_key';
+
+export type AuthUser = {
+  user_id: string;
+  username: string;
+  display_name: string;
+  email?: string;
+  api_key?: string;
+  created_at?: string;
+  updated_at?: string;
+  last_login_at?: string;
+};
+
+export const getAuthToken = () => localStorage.getItem(AUTH_TOKEN_KEY);
+export const setAuthToken = (token: string) => localStorage.setItem(AUTH_TOKEN_KEY, token);
+export const clearAuthToken = () => localStorage.removeItem(AUTH_TOKEN_KEY);
+export const getApiKey = () => localStorage.getItem(API_KEY_STORAGE_KEY);
+export const setApiKey = (apiKey: string) => localStorage.setItem(API_KEY_STORAGE_KEY, apiKey);
+export const clearApiKey = () => localStorage.removeItem(API_KEY_STORAGE_KEY);
+export const clearAuthCredentials = () => {
+  clearAuthToken();
+  clearApiKey();
+};
 
 export const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -9,9 +33,34 @@ export const apiClient = axios.create({
   },
 });
 
+apiClient.interceptors.request.use((config) => {
+  const token = getAuthToken();
+  if (token) {
+    config.headers.Authorization = `Bearer ${token}`;
+  }
+
+  const apiKey = getApiKey();
+  if (apiKey) {
+    config.headers['X-API-Key'] = apiKey;
+  }
+  return config;
+});
+
 export const api = {
   // System
   getHealth: () => apiClient.get('/api/system/health'),
+
+  // Auth
+  register: (data: { username: string; password: string; display_name?: string; email?: string }) =>
+    apiClient.post<{ status: string; token: string; api_key: string; user: AuthUser }>('/api/auth/register', data),
+
+  login: (data: { username: string; password: string }) =>
+    apiClient.post<{ status: string; token: string; api_key: string; user: AuthUser }>('/api/auth/login', data),
+
+  getCurrentUser: () =>
+    apiClient.get<{ status: string; user: AuthUser }>('/api/auth/me'),
+
+  logout: () => apiClient.post('/api/auth/logout'),
   
   // Lore
   getLore: (params?: { worldview_id?: string; outline_id?: string }) => 

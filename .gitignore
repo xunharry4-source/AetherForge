@@ -20,6 +20,7 @@ logs/
 .backend.pid
 .frontend.pid
 .ui.pid
+scratch/
 
 .idea/
 .cursor/
@@ -32,5 +33,7 @@ chroma_db/*/
 src/common/chroma_db/
 mongo_data/
 chroma_db_docker/
+data/chroma_db/
+data/worldviews/*/agent_usage.json
 
 归档.zip

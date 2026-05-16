@@ -159,6 +159,26 @@ docker-compose up -d
 - **真实大纲章节工作流测试**：执行 `API_BASE_URL=http://127.0.0.1:5006 .venv/bin/python tests/test_outline_chapter_workflow_requests.py`，测试会验证状态查询必须带条件和分页，并检查章节真实写入、更新和查询结果。
 - **自动生成后端 API 文档**：执行 `.venv/bin/python scripts/generate_api_docs.py`，脚本会从 `src/app_api.py` 的 Flask `@app.route` 自动生成 [docs/api.md](./docs/api.md) 和 [docs/openapi.json](./docs/openapi.json)。生成过程只解析源码 AST，不导入 Flask app、不连接 MongoDB、不执行业务处理器。
 
+## 🔐 认证与 API Key
+
+- **登录 Token**：注册或登录成功后生成，格式来自 `secrets.token_urlsafe(32)`，存储在 `auth_sessions.token`，用于 `Authorization: Bearer <token>`。
+- **用户 API Key**：格式为 `na_` 前缀加 `secrets.token_urlsafe(32)`，生成结果存储在 MongoDB `users.api_key` 字段。
+- **生成时机**：新用户在 `POST /api/auth/register` 时自动生成 API Key；旧用户如果没有 `api_key`，会在下一次 `POST /api/auth/login` 成功后自动补齐并持久化。
+- **返回字段**：注册和登录接口都会返回顶层 `api_key`，同时在 `user.api_key` 中返回同一个值。
+- **外部访问方式**：外部调用方可以不先登录，直接用用户 API Key 访问受保护接口，例如 `GET /api/auth/me`：
+
+```http
+X-API-Key: <api_key>
+```
+
+也支持：
+
+```http
+Authorization: ApiKey <api_key>
+```
+
+退出登录只会删除登录 Token，不会让用户 API Key 失效。
+
 ---
 
 ## 📄 开源协议

@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  Box, Drawer, AppBar, Toolbar, List, Typography, Divider,
+  Box, Drawer, AppBar, Toolbar, List, Typography,
   IconButton, ListItem, ListItemButton, ListItemIcon, ListItemText,
   Container, CssBaseline, ThemeProvider
 } from '@mui/material';
@@ -9,8 +9,9 @@ import {
   Dashboard as DashboardIcon,
   Book as BookIcon,
   LibraryBooks as LoreIcon,
-  ChevronLeft as ChevronLeftIcon,
-  AccountTree as AccountTreeIcon
+  AccountTree as AccountTreeIcon,
+  AccountCircle as AccountCircleIcon,
+  Login as LoginIcon
 } from '@mui/icons-material';
 import { useNavigate, Outlet, useLocation } from 'react-router-dom';
 import { theme } from '../theme';
@@ -28,6 +29,8 @@ export const MainLayout: React.FC = () => {
     { text: '星际图谱', icon: <AccountTreeIcon />, path: '/visualizer' },
     { text: '设定知识库', icon: <BookIcon />, path: '/lore' },
     { text: '小说项目管理', icon: <DashboardIcon />, path: '/novels' },
+    { text: '用户信息', icon: <AccountCircleIcon />, path: '/me' },
+    { text: '登录/注册', icon: <LoginIcon />, path: '/login' },
   ] as { text: string; icon: JSX.Element; path: string; color?: string }[];
 
   const handleDrawerToggle = () => {
